@@ -1,0 +1,25 @@
+# @package _global_
+# Generic SLURM cluster overrides
+# Usage: python scripts/train_skyrl.py +cluster=slurm
+
+# Paths (override via env for your cluster)
+data_dir: ${oc.env:DATA_DIR,./data}
+output_dir: ${oc.env:OUTPUT_DIR,outputs/${now:%Y-%m-%d_%H-%M-%S}}
+
+# WandB offline mode (no internet on compute nodes)
+wandb:
+  enabled: true
+  mode: offline
+  dir: ${oc.env:WANDB_DIR,./wandb}
+
+# Trainer adjustments for GPU
+trainer:
+  batch_size: 4
+  replay_buffer_size: 500
+  replay_ratio: 0.3
+
+# Checkpoint settings
+checkpoint_interval: 100
+
+# Device
+device: cuda

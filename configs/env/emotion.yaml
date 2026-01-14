@@ -1,0 +1,4 @@
+# Emotion from outcome environment
+name: emotion
+env_class: boxing_gym.envs.emotion:EmotionFromOutcome
+max_steps: 20

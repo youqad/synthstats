@@ -1,0 +1,4 @@
+# Location finding environment - signal localization
+name: location_finding
+env_class: boxing_gym.envs.location_finding:Signal
+max_steps: 20

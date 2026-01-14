@@ -1,0 +1,25 @@
+# @package _global_
+# Oxford ARC cluster-specific overrides
+# Usage: python scripts/train_skyrl.py +cluster=oxford_arc
+
+# Paths (resolved at runtime with USER env var)
+data_dir: /data/coml-prog-synthesis/${oc.env:USER}/synthstats/data
+output_dir: /data/coml-prog-synthesis/${oc.env:USER}/checkpoints/${now:%Y-%m-%d_%H-%M-%S}
+
+# WandB offline mode (no internet on compute nodes)
+wandb:
+  enabled: true
+  mode: offline
+  dir: /data/coml-prog-synthesis/${oc.env:USER}/wandb
+
+# Trainer adjustments for GPU
+trainer:
+  batch_size: 4
+  replay_buffer_size: 500
+  replay_ratio: 0.3
+
+# Checkpoint settings
+checkpoint_interval: 100
+
+# Device
+device: cuda

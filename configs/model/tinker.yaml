@@ -1,0 +1,12 @@
+# Tinker API - distributed LLM training via Thinking Machines Lab
+# Requires TINKER_API_KEY environment variable
+# Get access: https://thinkingmachines.ai/tinker/
+_target_: synthstats.integrations.tinker_adapter.TinkerPolicy
+config:
+  _target_: synthstats.integrations.tinker_adapter.TinkerConfig
+  model: meta-llama/Llama-3.1-8B-Instruct
+  api_key: ${oc.env:TINKER_API_KEY,null}
+  max_tokens: 256
+  temperature: 0.7
+  lora_rank: 32
+  learning_rate: 1e-5

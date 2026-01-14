@@ -1,0 +1,4 @@
+# Item response theory environment
+name: irt
+env_class: boxing_gym.envs.irt:IRT
+max_steps: 20

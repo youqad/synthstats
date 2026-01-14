@@ -7,15 +7,21 @@ build/
 
 .venv/
 venv/
+.venv-312/
+slides/
+site/
 
 .idea/
 .vscode/
 *.swp
 *~
+.DS_Store
+**/.DS_Store
 
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
 .coverage
 htmlcov/
 
@@ -34,3 +40,7 @@ AGENTS.md
 .repo_ignore
 .cursorindexingignore
 .specstory
+
+.archive/
+_archive/
+.github/

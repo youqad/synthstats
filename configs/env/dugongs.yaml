@@ -1,0 +1,4 @@
+# Dugongs environment - Sea cow growth curves
+name: dugongs
+env_class: boxing_gym.envs.dugongs:Dugongs
+max_steps: 20

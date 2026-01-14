@@ -1,0 +1,4 @@
+# Lotka-Volterra predator-prey environment
+name: lotka_volterra
+env_class: boxing_gym.envs.lotka_volterra:LotkaVolterra
+max_steps: 20

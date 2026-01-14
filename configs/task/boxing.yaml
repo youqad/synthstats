@@ -1,0 +1,4 @@
+name: boxing
+env: dugongs
+max_steps: 20
+tool_timeout_s: 30.0

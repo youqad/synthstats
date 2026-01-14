@@ -1,0 +1,5 @@
+# Qwen3-0.6B - Fast model for testing and development
+# 600M params, 32K context, base model (no instruct variant available)
+name: Qwen/Qwen3-0.6B
+dtype: bfloat16
+device: ${device}

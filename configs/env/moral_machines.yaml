@@ -1,0 +1,4 @@
+# Moral machines environment
+name: moral_machines
+env_class: boxing_gym.envs.moral_machines:MoralMachine
+max_steps: 20

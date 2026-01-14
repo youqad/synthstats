@@ -1,0 +1,4 @@
+# Death process environment - infection spread dynamics
+name: death_process
+env_class: boxing_gym.envs.death_process:DeathProcess
+max_steps: 20

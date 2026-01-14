@@ -1,0 +1,5 @@
+judges:
+  - type: likelihood
+    weight: 1.0
+  - type: formatting
+    weight: 0.1

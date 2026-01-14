@@ -1,0 +1,4 @@
+# Peregrines environment - Falcon population dynamics
+name: peregrines
+env_class: boxing_gym.envs.peregrines:Peregrines
+max_steps: 20

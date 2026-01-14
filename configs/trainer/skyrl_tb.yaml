@@ -1,0 +1,32 @@
+# SkyRL-native Trajectory Balance trainer config
+# Uses @register_policy_loss("trajectory_balance")
+
+# SkyRL algorithm config
+algorithm:
+  policy_loss_type: trajectory_balance
+  advantage_estimator: tb_identity  # passes log_rewards through as advantages
+  advantage_batch_normalize: false  # CRITICAL: TB needs raw log_rewards, not normalized
+  tb_max_residual: 100.0
+  logZ: 0.0  # will be updated by TBTrainer before each step
+  use_entropy_loss: false
+  use_kl_loss: false
+
+# training hyperparams
+policy_mini_batch_size: 4
+policy_epochs: 1
+
+# logZ learning rate (handled by TBTrainer)
+logZ_lr: 0.01
+logZ_init: 0.0
+
+# gradient clipping
+max_grad_norm: 1.0
+
+# generation params
+n_samples_per_prompt: 1
+temperature: 0.7
+max_new_tokens: 2048
+
+# replay buffer (optional)
+replay_buffer_size: 0
+use_gfn_replay: true  # on-sample re-scoring

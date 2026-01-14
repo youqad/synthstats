@@ -1,0 +1,4 @@
+# Survival analysis environment
+name: survival_analysis
+env_class: boxing_gym.envs.survival_analysis:SurvivalAnalysis
+max_steps: 20

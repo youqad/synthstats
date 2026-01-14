@@ -1,0 +1,4 @@
+name: toy
+env: toy_linear
+max_steps: 10
+tool_timeout_s: 10.0

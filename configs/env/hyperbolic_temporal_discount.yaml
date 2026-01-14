@@ -1,0 +1,4 @@
+# Hyperbolic temporal discounting environment
+name: hyperbolic_temporal_discount
+env_class: boxing_gym.envs.hyperbolic_temporal_discount:TemporalDiscount
+max_steps: 20

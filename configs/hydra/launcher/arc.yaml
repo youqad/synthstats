@@ -1,0 +1,36 @@
+# @package _global_
+# Oxford ARC SLURM launcher configuration
+# Usage: python scripts/train_skyrl.py hydra/launcher=arc
+
+defaults:
+  - submitit_slurm
+
+# SLURM job parameters
+partition: short
+cpus_per_task: 8
+mem_gb: 32
+timeout_min: 720  # 12 hours
+gres: gpu:v100:1
+tasks_per_node: 1
+nodes: 1
+
+# Output directory for submitit logs
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+
+# Setup commands run before job starts
+setup:
+  - "module purge"
+  - "module load cuda/12.1"
+  - "module load Anaconda3"
+  - "source activate synthstats"
+  - "export HF_HOME=/data/coml-prog-synthesis/${USER}/huggingface"
+  - "export TORCH_HOME=/data/coml-prog-synthesis/${USER}/torch"
+  - "export WANDB_MODE=offline"
+  - "export WANDB_DIR=/data/coml-prog-synthesis/${USER}/wandb"
+
+# Sweep parallelism (how many jobs to run concurrently)
+array_parallelism: 10
+
+# Signal handling for graceful shutdown
+signal_delay_s: 120
+max_num_timeout: 2

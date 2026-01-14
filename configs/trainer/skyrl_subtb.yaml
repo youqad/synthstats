@@ -1,0 +1,45 @@
+# SkyRL-native Sub-Trajectory Balance (SubTB) trainer config
+# Uses @register_policy_loss("modified_subtb") from gfn-lm-tuning
+#
+# SubTB differs from vanilla TB by:
+# 1. Computing flow matching loss over ALL sub-trajectory lengths
+# 2. Lambda-weighting longer sub-trajectories (lambda^(len-1))
+# 3. Using EOS logprobs for per-step termination flow
+#
+# This provides denser gradient signal and faster convergence than vanilla TB.
+
+# SkyRL algorithm config
+algorithm:
+  policy_loss_type: modified_subtb  # SubTB loss (not vanilla trajectory_balance)
+  advantage_estimator: tb_identity  # passes log_rewards through as advantages
+  advantage_batch_normalize: false  # CRITICAL: TB/SubTB need raw log_rewards, not normalized
+
+  # SubTB-specific params
+  subtb_lambda: 0.9  # decay factor for sub-trajectory lengths (higher = weight longer sub-trajs more)
+  tb_max_residual: 100.0  # clamp residual to [-max, max]
+  logZ: 0.0  # will be updated by SubTBTrainer before each step
+
+  # disable PPO-specific losses (not used in SubTB)
+  use_entropy_loss: false
+  use_kl_loss: false
+
+# training hyperparams
+policy_mini_batch_size: 4
+policy_epochs: 1
+
+# logZ learning rate (handled by SubTBTrainer)
+# logZ typically needs higher lr than model weights
+logZ_lr: 0.01
+logZ_init: 0.0
+
+# gradient clipping
+max_grad_norm: 1.0
+
+# generation params
+n_samples_per_prompt: 1
+temperature: 0.7
+max_new_tokens: 2048
+
+# replay buffer (optional)
+replay_buffer_size: 0
+use_gfn_replay: true  # on-sample re-scoring for GFlowNet training
