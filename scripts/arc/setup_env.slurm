@@ -65,17 +65,12 @@ source ${VENV_DIR}/bin/activate
 # Install PyTorch with CUDA wheels (override with TORCH_CUDA_INDEX, e.g. cu128)
 echo "Installing PyTorch..."
 TORCH_CUDA_INDEX=${TORCH_CUDA_INDEX:-cu121}
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}
 
-# Install synthstats
+# Install synthstats with extras using uv pip install
 cd ${USER_DIR}/synthstats
-echo "Installing synthstats..."
-REQ_FILE=${USER_DIR}/synthstats/scripts/arc/requirements_arc.txt
-python -m pip install -r ${REQ_FILE}
-python -m pip install -e ${USER_DIR}/synthstats --no-deps
-
-# If you are using SkyRL on ARC, add the skyrl extra by exporting a new
-# requirements file (see scripts/arc/requirements_arc.txt).
+echo "Installing synthstats with extras (ml, training, skyrl, pymc)..."
+uv pip install -e ".[ml,training,skyrl,pymc]"
 
 echo ""
 echo "=== Verification ==="

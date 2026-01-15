@@ -58,14 +58,10 @@ uv pip install torch torchvision torchaudio --index-url https://download.pytorch
 # Sync project (assumes project is already on ARC)
 cd ${USER_DIR}/synthstats
 
-# Install synthstats and dependencies from lockfile export
-echo "Installing synthstats..."
-REQ_FILE=${USER_DIR}/synthstats/scripts/arc/requirements_arc.txt
-python -m pip install -r ${REQ_FILE}
-python -m pip install -e ${USER_DIR}/synthstats --no-deps
-
-# If you are using SkyRL on ARC, add the skyrl extra by exporting a new
-# requirements file (see scripts/arc/requirements_arc.txt).
+# Install synthstats and dependencies using uv pip install
+# Uses pyproject.toml extras directly - no separate requirements file needed
+echo "Installing synthstats with extras (ml, training, skyrl, pymc)..."
+uv pip install -e ".[ml,training,skyrl,pymc]"
 
 echo ""
 echo "=== Verification ==="
