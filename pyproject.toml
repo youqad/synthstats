@@ -89,6 +89,10 @@ docs = [
 [tool.uv.sources]
 skyrl-train = { git = "https://github.com/NovaSky-AI/SkyRL.git", subdirectory = "skyrl-train", rev = "3fcbc05292a40ea0fe70ad81733f09eed49e5d58" }
 
+# flash-attn requires torch at build time but doesn't declare it
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch"]
+
 [project.scripts]
 synthstats = "synthstats.cli:main"
 

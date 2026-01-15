@@ -28,7 +28,7 @@ module purge
 if [ -n "${PYTHON_MODULE}" ]; then
     module load ${PYTHON_MODULE}
 fi
-module load CUDA/12.0.0
+module load CUDA/12.1.1
 
 # Activate virtual environment
 source /data/coml-prog-synthesis/${USER}/venvs/synthstats/bin/activate

@@ -24,7 +24,7 @@ export UV_NUM_THREADS=1
 # Python module is only used to bootstrap uv; the venv uses Python 3.12.
 PYTHON_MODULE=${PYTHON_MODULE:-Python/3.11.3-GCCcore-12.3.0}
 PYTHON_VERSION=${PYTHON_VERSION:-3.12}
-CUDA_MODULE=${CUDA_MODULE:-CUDA/12.0.0}
+CUDA_MODULE=${CUDA_MODULE:-CUDA/12.1.1}
 module purge
 if [ -n "${PYTHON_MODULE}" ]; then
     module load ${PYTHON_MODULE}

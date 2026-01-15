@@ -24,6 +24,7 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
 from synthstats.envs.skyrl_text_env import SynthStatsTextEnv
 from synthstats.policies.hf_policy import HFPolicy, MockHFPolicy
 from synthstats.trainers.skyrl_subtb import SkyRLSubTBTrainer, SubTBConfig
@@ -149,37 +150,6 @@ def load_checkpoint(
     return step
 
 
-def create_mock_task_and_codec() -> tuple[Any, Any]:
-    """Create mock task and codec for testing."""
-    from synthstats.core.types import FinalAnswer, Message, StepResult
-
-    class MockTask:
-        name = "mock"
-
-        def reset(self, seed=None):
-            if seed is not None:
-                random.seed(seed)
-            return {"step": 0}
-
-        def observe(self, state):
-            return [
-                Message(role="system", content="You are a test agent."),
-                Message(role="user", content="Please provide a JSON answer."),
-            ]
-
-        def step(self, state, action):
-            return StepResult(
-                next_state={"step": state["step"] + 1},
-                done=True,
-                artifacts={"reward": random.uniform(0.5, 2.0)},
-            )
-
-    class MockCodec:
-        def parse(self, text):
-            return FinalAnswer(text=text)
-
-    return MockTask(), MockCodec()
-
 
 def resolve_device(device_str: str) -> str:
     """Resolve 'auto' to actual device."""
@@ -219,10 +189,11 @@ def create_policy(cfg: DictConfig, device: str) -> Any:
     return HFPolicy(
         model_name=model_name,
         device=device,
+        require_grad_logp=cfg.model.get("require_grad_logp", False),
     )
 
 
-def create_trainer(cfg: DictConfig, device: str) -> Any:
+def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> Any:
     """Create trainer from config."""
     if "_target_" in cfg.trainer:
         logger.info("Using Hydra instantiation for trainer")
@@ -270,6 +241,21 @@ def create_trainer(cfg: DictConfig, device: str) -> Any:
 
     # setup optimizer
     params = [{"params": [trainer.logZ], "lr": cfg.trainer.get("logZ_lr", 0.1)}]
+
+    if policy is not None and hasattr(policy, "parameters"):
+        try:
+            policy_params = [p for p in policy.parameters() if p.requires_grad]
+        except Exception:
+            policy_params = []
+        if policy_params:
+            params.insert(
+                0,
+                {
+                    "params": policy_params,
+                    "lr": cfg.trainer.get("learning_rate", 1e-5),
+                },
+            )
+
     trainer.optimizer = torch.optim.Adam(params)
 
     return trainer
@@ -296,10 +282,106 @@ def create_ref_policy(cfg: DictConfig, device: str) -> Any | None:
     )
 
 
-def create_env(cfg: DictConfig) -> SynthStatsTextEnv:
+def build_task(cfg: DictConfig) -> Any:
+    """Instantiate the task based on config."""
+    task_cfg = cfg.task
+
+    if task_cfg.name == "toy":
+        from synthstats.training.trainer import ToyTask
+
+        logger.info("Using ToyTask")
+        return ToyTask()
+
+    if task_cfg.name == "boxing":
+        from synthstats.tasks.boxing.task import BoxingTask
+
+        logger.info(f"Using BoxingTask with env={task_cfg.env}")
+        return BoxingTask(
+            env_name=task_cfg.env,
+            max_steps=getattr(task_cfg, "max_steps", 20),
+        )
+
+    raise ValueError(f"Unknown task: {task_cfg.name}")
+
+
+def build_codec(cfg: DictConfig) -> Any:
+    """Instantiate the codec based on config."""
+    codec_name = cfg.runtime.codec
+
+    if codec_name == "boxing":
+        from synthstats.tasks.boxing import BoxingCodec
+
+        return BoxingCodec()
+
+    if codec_name == "json":
+        from synthstats.runtime.codecs import JSONToolCodec
+
+        return JSONToolCodec()
+
+    if codec_name == "xml":
+        from synthstats.runtime.codecs import XMLToolCodec
+
+        return XMLToolCodec()
+
+    raise ValueError(f"Unknown codec: {codec_name}")
+
+
+def build_judge(cfg: DictConfig) -> Any:
+    """Instantiate judge(s) based on config."""
+    judge_cfg = cfg.judge
+    judges_with_weights: list[tuple[Any, float]] = []
+
+    for judge_spec in judge_cfg.judges:
+        judge_type = judge_spec["type"]
+        weight = judge_spec.get("weight", 1.0)
+
+        if judge_type == "likelihood":
+            from synthstats.judges.likelihood import LikelihoodJudge
+
+            judges_with_weights.append((LikelihoodJudge(), weight))
+        elif judge_type == "formatting":
+            from synthstats.judges.formatting import FormattingJudge
+
+            judges_with_weights.append((FormattingJudge(), weight))
+        else:
+            raise ValueError(f"Unknown judge type: {judge_type}")
+
+    from synthstats.judges.composite import CompositeJudge
+
+    return CompositeJudge(judges_with_weights)
+
+
+def create_env(cfg: DictConfig) -> Any:
     """Create SkyRL text environment."""
-    task, codec = create_mock_task_and_codec()
-    return SynthStatsTextEnv(task=task, codec=codec)
+    task = build_task(cfg)
+    codec = build_codec(cfg)
+    max_turns = getattr(cfg.task, "max_steps", 20)
+
+    if cfg.task.name == "boxing":
+        judge = build_judge(cfg)
+        executors: dict[str, Any] = {}
+        try:
+            from synthstats.executors.pymc_sandbox import PyMCExecutor
+
+            executors["pymc"] = PyMCExecutor()
+        except Exception as e:
+            logger.warning(f"Failed to init PyMCExecutor: {e}")
+
+        env_config = BoxingEnvConfig(max_turns=max_turns)
+        return BoxingEnv(
+            task=task,
+            codec=codec,
+            executors=executors,
+            judge=judge,
+            config=env_config,
+        )
+
+    return SynthStatsTextEnv(
+        task=task,
+        codec=codec,
+        executors={},
+        max_turns=max_turns,
+    )
 
 
 def create_wandb_callback(cfg: DictConfig):
@@ -349,7 +431,7 @@ def main(cfg: DictConfig) -> None:
 
     # create components
     policy = create_policy(cfg, device)
-    trainer = create_trainer(cfg, device)
+    trainer = create_trainer(cfg, device, policy)
     ref_policy = create_ref_policy(cfg, device)
     env = create_env(cfg)
 

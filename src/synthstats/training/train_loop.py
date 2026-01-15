@@ -355,10 +355,14 @@ class TrainingLoop:
 
         n = episodes or self.config.eval_episodes
 
-        # collect with temperature=0 for deterministic eval
+        # avoid temperature=0.0 to prevent sampler errors in HFPolicy
+        eval_temp = self.config.temperature
+        if eval_temp <= 0:
+            eval_temp = 1e-3
+
         trajectories = self.collector.collect(
             episodes=n,
-            temperature=0.0,
+            temperature=eval_temp,
         )
 
         rewards = [t.reward for t in trajectories]
