@@ -3,7 +3,6 @@
 </p>
 
 <h1 align="center">SynthStats</h1>
-<p align="center">GFlowNet-steered probabilistic program synthesis for safer AI</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.12%20|%203.13-blue.svg" alt="Python 3.12-3.13">
@@ -14,50 +13,54 @@
 
 ## Overview
 
-SynthStats trains language models to sample from distributions over probabilistic programs (PyMC) proportionally to their likelihood. Unlike standard RL methods that mode-seek (collapsing to a single high-reward program), GFlowNet training with Sub-Trajectory Balance (SubTB) loss preserves diversity across the entire reward distribution.
+SynthStats is research code exploring GFlowNet objectives for training language-model policies to generate probabilistic programs (PyMC). It scores proposed programs with task-specific rewards (often likelihood-based) and aims to maintain a diverse set of high-reward candidates rather than optimizing a single best output. The repository includes training loops (TB/SubTB), replay buffers, and benchmark tasks adapted from BoxingGym.
 
-This enables uncertainty quantification through sampling, exploration of alternative models, and interpretable Bayesian reasoning. Each generated program is a human-readable statistical model, not a black-box neural network.
+## Status
 
-The architecture is built on a plugin system (Task/Policy/Executor/Judge protocols) that separates environment logic from training infrastructure, making it easy to adapt SynthStats to new domains beyond probabilistic programming.
+**Experimental research code.** Interfaces, defaults, and APIs may change. Not intended for production.
 
-## Key Features
+## What's Included
 
-- **SubTB Loss with Learned logZ** — Flow matching across all sub-trajectory lengths for faster convergence
-- **Plugin Architecture** — Swap tasks, policies, executors, and judges without touching training code
-- **BoxingGym Benchmarks** — Dugongs, Peregrines, Eight Schools, and Surgical environments
-- **Safe Execution** — AST filtering blocks dangerous operations, subprocess isolation contains failures
-- **SkyRL Integration** — Scale from local runs to multi-node SLURM clusters
-- **GFN Replay Buffer** — On-sample re-scoring eliminates off-policy bias
-- **ELPD-LOO Rewards** — Automatic Bayesian model scoring via leave-one-out cross-validation
+- **Training:** GFlowNet objectives (Sub-Trajectory Balance, Trajectory Balance) and prioritized replay buffers
+- **Execution:** Protocol-based environment for PyMC programs with AST-based sandboxing
+- **Benchmarks:** Tasks adapted from BoxingGym (Dugongs, Peregrines, Eight Schools, Surgical)
+- **Architecture:** Plugin system separating Task, Policy, Executor, and Judge
+
+## Sandboxing Note
+
+Generated code is executed with best-effort constraints (AST checks, subprocess isolation). This is **not** a hardened security sandbox. Do not run on untrusted inputs.
+
+## Experimental: SkyRL Compatibility
+
+This repo includes experimental SkyRL-compatible trainer configs and loss registration, but does **not** use SkyRL's `BasePPOExp` training stack. Multi-node/SLURM execution depends on your cluster configuration.
 
 ## Installation
 
 Requires Python 3.12 or 3.13:
 
 ```bash
-# Clone repository
-git clone https://github.com/youdar/synthstats.git
+git clone https://github.com/youqad/synthstats.git
 cd synthstats
 
-# Install dependencies (uv is recommended)
+# Install dependencies
 uv sync
 
-# Install with ML dependencies
+# With ML + PyMC extras
 uv sync --extra ml --extra pymc
 ```
 
 ## Quick Start
 
-Train on the Dugongs environment:
+Train on Dugongs:
 
 ```bash
-uv run python scripts/train.py env=dugongs model=qwen3_0.6b
+uv run python scripts/train_skyrl.py env=dugongs model=qwen3_0.6b
 ```
 
 Override config via Hydra:
 
 ```bash
-uv run python scripts/train.py env=peregrines model=qwen3_4b \
+uv run python scripts/train_skyrl.py env=peregrines model=qwen3_4b \
   +trainer.batch_size=8 +wandb.project=my_experiment
 ```
 
@@ -67,22 +70,20 @@ Run tests:
 uv run pytest
 ```
 
-See the [full documentation](docs/) for architecture details, training guides, and API references.
-
 ## Project Structure
 
 ```
 src/synthstats/
 ├── core/           # Protocol definitions (Task, Policy, Executor, Judge)
 ├── training/       # GFlowNet losses (SubTB, TB), trainers, replay buffers
-├── tasks/          # Task plugins (Boxing, SynthStats, ARC, SWE)
-├── judges/         # Reward components (ELPD-LOO, formatting, LLM critic)
+├── tasks/          # Task plugins (Boxing, etc.)
+├── judges/         # Reward components (ELPD-LOO, formatting)
 ├── policies/       # Policy implementations (HuggingFace, mock)
-├── runtime/        # Execution sandboxes (Python AST, Docker)
-└── integrations/   # SkyRL, Tinker API
+├── executors/      # Execution sandboxes (PyMC)
+└── integrations/   # Tinker API adapter
 ```
 
 ## Links
 
-- **Documentation**: [/docs](docs/) (MkDocs site)
-- **Issues**: [GitHub Issues](https://github.com/youdar/synthstats/issues)
+- **Documentation**: [docs/](docs/)
+- **Issues**: [GitHub Issues](https://github.com/youqad/synthstats/issues)
