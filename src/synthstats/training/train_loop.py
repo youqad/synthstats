@@ -1,17 +1,20 @@
-"""SkyRL-integrated training loop.
+"""Training loop for GFlowNet SubTB training.
 
-Uses the SkyRL integration components:
+SkyRL-compatible but standalone - uses custom TrainingLoop rather than
+SkyRL's BasePPOExp. This enables GFN-specific features (on-sample replay
+re-scoring, EOS logprob tracking) that don't easily port to Ray.
+
+Components:
 - SimpleCollector for trajectory collection
 - SkyRLSubTBTrainer for loss computation
 - HFPolicy / MockHFPolicy for action generation
-
-This is the canonical training loop for SkyRL-based training.
+- GFNReplayBuffer for off-policy training without stale log_probs
 """
 
 from __future__ import annotations
 
-import math
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -283,7 +286,10 @@ class TrainingLoop:
         trajectories = fresh_trajectories + replay_trajectories
 
         # build batch - use appropriate builder for trainer type
-        is_tinker = hasattr(self.trainer, "__class__") and "Tinker" in self.trainer.__class__.__name__
+        is_tinker = (
+            hasattr(self.trainer, "__class__")
+            and "Tinker" in self.trainer.__class__.__name__
+        )
         if is_tinker:
             batch = build_tinker_batch(
                 trajectories,
@@ -301,7 +307,10 @@ class TrainingLoop:
         metrics = self.trainer.train_step(batch)
 
         # add trajectory-level metrics
-        avg_reward = sum(t.reward for t in trajectories) / len(trajectories)
+        def _reward_value(reward: Any) -> float:
+            return float(getattr(reward, "total", reward))
+
+        avg_reward = sum(_reward_value(t.reward) for t in trajectories) / len(trajectories)
         metrics["avg_reward"] = avg_reward
         metrics["num_episodes"] = len(trajectories)
         metrics["replay_ratio"] = num_replay / len(trajectories) if trajectories else 0.0

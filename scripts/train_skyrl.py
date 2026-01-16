@@ -33,6 +33,23 @@ from synthstats.training.train_loop import TrainingConfig, TrainingLoop
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def _sync_skyrl_registries() -> None:
+    """Sync SkyRL registries if Ray is initialized.
+
+    This ensures registered losses (tb_identity, trajectory_balance, modified_subtb)
+    are available to Ray workers for distributed training.
+    """
+    try:
+        import ray
+        if not ray.is_initialized():
+            return
+        from skyrl_train.utils.ppo_utils import sync_registries
+        sync_registries()
+        logger.info("SkyRL registries synced with Ray workers")
+    except ImportError:
+        pass  # SkyRL or Ray not available
+
 # Global flag for graceful shutdown
 shutdown_requested = False
 
@@ -81,10 +98,15 @@ def save_checkpoint(
         return checkpoint_path
 
     # default checkpoint format (SkyRLSubTBTrainer)
+    optimizer_state = (
+        trainer.optimizer.state_dict()
+        if hasattr(trainer, "optimizer") and trainer.optimizer
+        else None
+    )
     checkpoint = {
         "step": step,
         "logZ": trainer.logZ.item(),
-        "optimizer_state": trainer.optimizer.state_dict() if hasattr(trainer, "optimizer") and trainer.optimizer else None,
+        "optimizer_state": optimizer_state,
         "metrics": metrics or {},
     }
 
@@ -123,7 +145,11 @@ def load_checkpoint(
     if hasattr(trainer, "load_checkpoint"):
         checkpoint = trainer.load_checkpoint(str(checkpoint_path), strict=False)
         # restore optimizer state if available
-        if hasattr(trainer, "optimizer") and trainer.optimizer and checkpoint.get("optimizer_state"):
+        if (
+            hasattr(trainer, "optimizer")
+            and trainer.optimizer
+            and checkpoint.get("optimizer_state")
+        ):
             trainer.optimizer.load_state_dict(checkpoint["optimizer_state"])
         step = checkpoint.get("step", 0)
         logger.info(f"Resumed TinkerTrainer from step {step}")
@@ -137,7 +163,11 @@ def load_checkpoint(
         trainer.logZ.fill_(checkpoint["logZ"])
 
     # restore optimizer
-    if hasattr(trainer, "optimizer") and trainer.optimizer and checkpoint.get("optimizer_state"):
+    if (
+        hasattr(trainer, "optimizer")
+        and trainer.optimizer
+        and checkpoint.get("optimizer_state")
+    ):
         trainer.optimizer.load_state_dict(checkpoint["optimizer_state"])
 
     # restore model if available
@@ -197,8 +227,9 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
     """Create trainer from config."""
     if "_target_" in cfg.trainer:
         logger.info("Using Hydra instantiation for trainer")
-        from synthstats.integrations.tinker_adapter import TinkerConfig, TinkerTrainer
         from hydra.utils import instantiate
+
+        from synthstats.integrations.tinker_adapter import TinkerConfig, TinkerTrainer
 
         config_obj = cfg.trainer.get("config", {})
         if "_target_" in config_obj:
@@ -239,7 +270,6 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
         device=device,
     )
 
-    # setup optimizer
     params = [{"params": [trainer.logZ], "lr": cfg.trainer.get("logZ_lr", 0.1)}]
 
     if policy is not None and hasattr(policy, "parameters"):
@@ -418,18 +448,18 @@ def main(cfg: DictConfig) -> None:
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
 
+    # sync SkyRL registries if Ray is running (for distributed training)
+    _sync_skyrl_registries()
+
     logger.info("Starting SkyRL training")
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
-    # set seed
     random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
-    # resolve device
     device = resolve_device(cfg.device)
     logger.info(f"Using device: {device}")
 
-    # create components
     policy = create_policy(cfg, device)
     trainer = create_trainer(cfg, device, policy)
     ref_policy = create_ref_policy(cfg, device)
@@ -445,12 +475,16 @@ def main(cfg: DictConfig) -> None:
     # get output directory and checkpoint interval
     output_dir = cfg.get("output_dir", "checkpoints")
     checkpoint_interval = cfg.get("checkpoint_interval", 100)
+    checkpointing_enabled = checkpoint_interval > 0
 
     # create training loop - handle both _target_ and simple configs
     # for _target_ configs, params may be under 'config' subkey or at root
     trainer_cfg = cfg.trainer
     if "_target_" in trainer_cfg:
-        batch_size = trainer_cfg.get("batch_size", trainer_cfg.get("config", {}).get("batch_size", 4))
+        batch_size = trainer_cfg.get(
+            "batch_size",
+            trainer_cfg.get("config", {}).get("batch_size", 4),
+        )
         learning_rate = trainer_cfg.get("config", {}).get("learning_rate", 1e-5)
     else:
         batch_size = trainer_cfg.get("batch_size", 4)
@@ -470,7 +504,6 @@ def main(cfg: DictConfig) -> None:
     )
     loop = TrainingLoop(config=training_config)
 
-    # setup with optional WandB callback
     callback = create_wandb_callback(cfg)
     loop.setup(
         policy=policy,
@@ -485,7 +518,8 @@ def main(cfg: DictConfig) -> None:
     remaining_steps = num_steps - start_step
     logger.info(f"Starting training for {remaining_steps} steps (total: {num_steps})")
     logger.info(f"Batch size: {batch_size}, Checkpoint interval: {checkpoint_interval}")
-    import sys
+    if not checkpointing_enabled:
+        logger.info("Checkpointing disabled (checkpoint_interval <= 0)")
     sys.stdout.flush()  # Force flush
 
     all_metrics = []
@@ -495,9 +529,12 @@ def main(cfg: DictConfig) -> None:
         # run in chunks to allow checkpointing
         while current_step < num_steps and not shutdown_requested:
             # calculate steps for this chunk
-            steps_until_checkpoint = checkpoint_interval - (current_step % checkpoint_interval)
             steps_until_end = num_steps - current_step
-            chunk_steps = min(steps_until_checkpoint, steps_until_end)
+            if checkpointing_enabled:
+                steps_until_checkpoint = checkpoint_interval - (current_step % checkpoint_interval)
+                chunk_steps = min(steps_until_checkpoint, steps_until_end)
+            else:
+                chunk_steps = steps_until_end
 
             # run chunk
             logger.info(f"Running chunk: steps {current_step} to {current_step + chunk_steps}")
@@ -516,13 +553,16 @@ def main(cfg: DictConfig) -> None:
                 )
 
             # save checkpoint at intervals
-            if current_step % checkpoint_interval == 0 or current_step >= num_steps:
+            if checkpointing_enabled and (
+                current_step % checkpoint_interval == 0 or current_step >= num_steps
+            ):
+                last_loss = chunk_metrics[-1].get("loss", 0) if chunk_metrics else None
                 save_checkpoint(
                     trainer=trainer,
                     policy=policy,
                     step=current_step,
                     output_dir=output_dir,
-                    metrics={"last_loss": chunk_metrics[-1].get("loss", 0)} if chunk_metrics else None,
+                    metrics={"last_loss": last_loss} if last_loss is not None else None,
                 )
 
             # check for shutdown request
