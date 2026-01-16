@@ -44,3 +44,7 @@ AGENTS.md
 .archive/
 _archive/
 .github/.envrc
+tmp_manual_tests/
+
+# Personal ARC sync scripts (contain hardcoded paths)
+scripts/arc/sync_*.sh
