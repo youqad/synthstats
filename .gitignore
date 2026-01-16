@@ -52,4 +52,10 @@ scripts/arc/sync_*.sh
 # Documentation (WIP - most files need rewrite)
 docs/*
 !docs/README.md
+!docs/assets/
+docs/assets/*
+!docs/assets/images/
+docs/assets/images/*
+!docs/assets/images/logo.png
+!docs/assets/images/logo.svg
 mkdocs.yml
