@@ -48,3 +48,7 @@ tmp_manual_tests/
 
 # Personal ARC sync scripts (contain hardcoded paths)
 scripts/arc/sync_*.sh
+
+# Documentation (WIP - needs de-slopping)
+docs/
+mkdocs.yml
