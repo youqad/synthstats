@@ -7,6 +7,18 @@ import pytest
 import torch
 import torch.nn as nn
 
+# skip all tests in this module if Tinker SDK is not installed
+try:
+    import tinker  # noqa: F401
+
+    TINKER_AVAILABLE = True
+except ImportError:
+    TINKER_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(
+    not TINKER_AVAILABLE,
+    reason="Tinker SDK not installed",
+)
 
 # --- Shared Test Fixtures ---
 
@@ -503,8 +515,9 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_reward_floor_prevents_log_zero(self):
         """Reward floor should prevent log(0) = -inf."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         import math
+
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = self._create_trajectory([
             ("user", "Test"),
@@ -520,8 +533,9 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_negative_reward_uses_floor(self):
         """Negative rewards should use floor (shouldn't happen but be safe)."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         import math
+
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = self._create_trajectory([
             ("user", "Test"),
@@ -558,8 +572,8 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_loss_mask_passthrough(self):
         """Trajectory with loss_mask should have mask in batch."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         # trajectory with explicit loss_mask (some tokens masked)
         traj = Trajectory(
@@ -581,8 +595,8 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_loss_mask_not_present_if_all_empty(self):
         """Trajectory without loss_mask should not have mask in batch."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         # trajectory with empty loss_mask
         traj = Trajectory(
@@ -603,8 +617,8 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_loss_mask_padding_mixed_lengths(self):
         """Multiple trajectories with different mask lengths should pad correctly."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj1 = Trajectory(
             messages=[
@@ -638,8 +652,8 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_loss_mask_some_trajectories_have_mask(self):
         """Mixed batch: some trajectories have mask, some don't."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj_with_mask = Trajectory(
             messages=[
@@ -759,8 +773,8 @@ class TestMultiTurnSupport:
 
     def test_single_turn_backward_compat_in_multi_mode(self):
         """Single-turn trajectories should work in multi_turn mode."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -784,8 +798,8 @@ class TestMultiTurnSupport:
 
     def test_multi_turn_completion_preserves_structure(self):
         """Multi-turn completion should preserve all messages."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -810,8 +824,8 @@ class TestMultiTurnSupport:
 
     def test_multi_turn_user_turns_in_boundaries(self):
         """User turns between assistant turns should be in boundaries."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -834,8 +848,8 @@ class TestMultiTurnSupport:
 
     def test_zero_assistant_messages_returns_empty(self):
         """Trajectory with 0 assistant messages should return empty completion."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -856,8 +870,8 @@ class TestMultiTurnSupport:
 
     def test_empty_assistant_content_creates_zero_width_boundary(self):
         """Empty assistant content should create zero-width boundary."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
         from synthstats.core.types import Message, Reward, Trajectory
+        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -886,7 +900,7 @@ class TestBuildTurnMask:
 
     def test_assistant_only_included(self, mock_tokenizer):
         """Only assistant turn tokens should be True in mask."""
-        from synthstats.integrations.tinker_adapter import _build_turn_mask, TurnBoundary
+        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
 
         completion = "Assistant response\nUser question\nAssistant again"
         boundaries = [
@@ -915,7 +929,7 @@ class TestBuildTurnMask:
 
     def test_raises_without_offset_mapping(self):
         """Should raise ValueError if tokenizer lacks offset_mapping support."""
-        from synthstats.integrations.tinker_adapter import _build_turn_mask, TurnBoundary
+        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
 
         completion = "Test"
         boundaries = [TurnBoundary(0, 4, "assistant", 0, True)]
@@ -933,7 +947,7 @@ class TestBuildTurnMask:
         When Tinker tokenizes prompt+completion, logprobs include prompt tokens.
         The mask must be offset so it marks completion positions, not prompt ones.
         """
-        from synthstats.integrations.tinker_adapter import _build_turn_mask, TurnBoundary
+        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
 
         # completion = "AB" (2 chars = 2 tokens with our mock)
         # boundary marks entire completion as assistant
@@ -952,9 +966,10 @@ class TestBuildTurnMask:
 
     def test_prompt_offset_with_multi_turn(self, mock_tokenizer):
         """Multi-turn with prompt offset should mark only assistant turns."""
-        from synthstats.integrations.tinker_adapter import _build_turn_mask, TurnBoundary
+        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
 
-        # completion = "A1\nQ2\nA2" = "A1" (assistant) + "\n" + "Q2" (user) + "\n" + "A2" (assistant)
+        # completion = "A1\nQ2\nA2" = "A1" (assistant) + "\n" + "Q2" (user)
+        # + "\n" + "A2" (assistant)
         # chars: A=0, 1=1, \n=2, Q=3, 2=4, \n=5, A=6, 2=7
         completion = "A1\nQ2\nA2"
         boundaries = [
@@ -978,7 +993,7 @@ class TestBuildTurnMask:
 
     def test_prompt_offset_default_zero(self, mock_tokenizer):
         """Default prompt_offset=0 should not shift mask positions."""
-        from synthstats.integrations.tinker_adapter import _build_turn_mask, TurnBoundary
+        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
 
         completion = "ABC"
         boundaries = [TurnBoundary(0, 3, "assistant", 0, True)]
@@ -991,7 +1006,7 @@ class TestBuildTurnMask:
 
     def test_prompt_offset_exceeds_seq_len(self, mock_tokenizer):
         """Offset >= seq_len should result in all-False mask (silent edge case)."""
-        from synthstats.integrations.tinker_adapter import _build_turn_mask, TurnBoundary
+        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
 
         completion = "AB"
         boundaries = [TurnBoundary(0, 2, "assistant", 0, True)]

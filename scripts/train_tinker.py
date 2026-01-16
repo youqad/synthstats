@@ -27,12 +27,10 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import hydra
-import torch
 from omegaconf import DictConfig, OmegaConf
 
 logging.basicConfig(level=logging.INFO)
@@ -75,7 +73,6 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
 
     logger.info("Running MOCK training mode (no API key needed)")
 
-    # create trainer with mock config
     tinker_cfg = TinkerConfig(
         model="mock-model",
         api_key="mock-key",
@@ -88,7 +85,6 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
     trainer._training_client = MockTinkerTrainingClient()
     trainer._service_client = "mock"  # prevent real client creation
 
-    # training params
     num_episodes = cfg.trainer.num_episodes
     batch_size = cfg.trainer.batch_size
     env_name = cfg.env.name
@@ -126,10 +122,15 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
                 f"mean_log_R={metrics['reward'][-1]:.4f}"
             )
 
+    mean_loss = sum(metrics["loss"]) / len(metrics["loss"]) if metrics["loss"] else 0.0
+    final_logZ = metrics["logZ"][-1] if metrics["logZ"] else 0.0
+    mean_log_reward = (
+        sum(metrics["reward"]) / len(metrics["reward"]) if metrics["reward"] else 0.0
+    )
     return {
-        "mean_loss": sum(metrics["loss"]) / len(metrics["loss"]) if metrics["loss"] else 0.0,
-        "final_logZ": metrics["logZ"][-1] if metrics["logZ"] else 0.0,
-        "mean_log_reward": sum(metrics["reward"]) / len(metrics["reward"]) if metrics["reward"] else 0.0,
+        "mean_loss": mean_loss,
+        "final_logZ": final_logZ,
+        "mean_log_reward": mean_log_reward,
     }
 
 
@@ -139,8 +140,8 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
         TinkerConfig,
         TinkerPolicy,
         TinkerTrainer,
-        trajectories_to_tinker_batch,
         is_tinker_available,
+        trajectories_to_tinker_batch,
     )
 
     if not is_tinker_available():
@@ -151,7 +152,6 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
 
     logger.info("Running REAL training mode with Tinker API")
 
-    # create Tinker config
     tinker_cfg = TinkerConfig(
         model=cfg.trainer.config.model,
         api_key=cfg.trainer.config.api_key,
@@ -161,7 +161,6 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
         learning_rate=cfg.trainer.config.learning_rate,
     )
 
-    # create policy and trainer
     policy = TinkerPolicy(config=tinker_cfg)
     trainer = TinkerTrainer(config=tinker_cfg, logZ_init=cfg.trainer.logZ_init)
 
@@ -169,12 +168,11 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
     logger.info(f"LoRA rank: {tinker_cfg.lora_rank}")
     logger.info(f"Learning rate: {tinker_cfg.learning_rate}")
 
-    # create environment
-    from synthstats.tasks.boxing import BoxingTask
-    from synthstats.tasks.boxing.codecs import BoxingCodec
+    from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
     from synthstats.executors.pymc_sandbox import PyMCExecutor
     from synthstats.judges.likelihood import LikelihoodJudge
-    from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
+    from synthstats.tasks.boxing import BoxingTask
+    from synthstats.tasks.boxing.codecs import BoxingCodec
 
     task = BoxingTask(env_name=cfg.env.name)
     codec = BoxingCodec()
@@ -192,12 +190,10 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
 
     logger.info(f"Environment: {cfg.env.name}")
 
-    # training params
     num_episodes = cfg.trainer.num_episodes
     batch_size = cfg.trainer.batch_size
     checkpoint_interval = cfg.get("checkpoint_interval", 50)
 
-    # initialize wandb if enabled
     if cfg.wandb.enabled:
         import wandb
         wandb.init(
@@ -287,10 +283,15 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
     if cfg.wandb.enabled:
         wandb.finish()
 
+    mean_loss = sum(metrics["loss"]) / len(metrics["loss"]) if metrics["loss"] else 0.0
+    final_logZ = metrics["logZ"][-1] if metrics["logZ"] else 0.0
+    mean_log_reward = (
+        sum(metrics["reward"]) / len(metrics["reward"]) if metrics["reward"] else 0.0
+    )
     return {
-        "mean_loss": sum(metrics["loss"]) / len(metrics["loss"]) if metrics["loss"] else 0.0,
-        "final_logZ": metrics["logZ"][-1] if metrics["logZ"] else 0.0,
-        "mean_log_reward": sum(metrics["reward"]) / len(metrics["reward"]) if metrics["reward"] else 0.0,
+        "mean_loss": mean_loss,
+        "final_logZ": final_logZ,
+        "mean_log_reward": mean_log_reward,
     }
 
 
@@ -305,7 +306,9 @@ def main(cfg: DictConfig) -> None:
     if "TinkerTrainer" not in trainer_target:
         logger.info("Using trainer=tinker config")
         # load and merge tinker trainer config
-        tinker_trainer = OmegaConf.load(Path(__file__).parent.parent / "configs/trainer/tinker.yaml")
+        tinker_trainer = OmegaConf.load(
+            Path(__file__).parent.parent / "configs/trainer/tinker.yaml"
+        )
         if "trainer" in cfg:
             cfg.trainer = OmegaConf.merge(cfg.trainer, tinker_trainer)
         else:
@@ -315,13 +318,11 @@ def main(cfg: DictConfig) -> None:
     logger.info("SynthStats Tinker Training")
     logger.info("=" * 60)
 
-    # print config summary
     logger.info(f"Environment: {cfg.get('env', {}).get('name', 'unknown')}")
     logger.info(f"Model: {cfg.trainer.config.model}")
     logger.info(f"Episodes: {cfg.trainer.num_episodes}")
     logger.info(f"Batch size: {cfg.trainer.batch_size}")
 
-    # check for mock mode
     mock_mode = cfg.get("mock", False)
 
     if mock_mode:

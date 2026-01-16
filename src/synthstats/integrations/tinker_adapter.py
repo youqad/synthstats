@@ -34,10 +34,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    import torch
-    from torch import Tensor
 
-    from synthstats.core.types import Message, Trajectory
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -792,7 +790,7 @@ class TinkerTrainer:
 
         data = []
         log_rewards_list = batch["log_reward"].tolist()
-        for prompt, completion, log_r in zip(
+        for prompt, completion, _log_r in zip(
             batch["prompts"], batch["completions"], log_rewards_list, strict=True
         ):
             full_text = prompt + completion
@@ -990,7 +988,9 @@ class TinkerTrainer:
             raise ValueError("Batch cannot be empty")
 
         if len(prompts) != len(completions):
-            raise ValueError(f"Size mismatch: {len(prompts)} prompts vs {len(completions)} completions")
+            raise ValueError(
+                f"Size mismatch: {len(prompts)} prompts vs {len(completions)} completions"
+            )
 
         if hasattr(log_reward, "__len__") and len(log_reward) != len(prompts):
             raise ValueError(f"Size mismatch: {len(prompts)} prompts vs {len(log_reward)} rewards")
