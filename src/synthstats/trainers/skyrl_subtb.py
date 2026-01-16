@@ -1,18 +1,20 @@
-"""SkyRL-compatible trainer wrapper for SubTB (trajectory balance) loss.
+"""SubTB (trajectory balance) trainer for GFlowNet training.
 
-This is a minimal adapter: it expects skyrl-train style batches with keys:
+SkyRL-compatible but standalone - can be used without SkyRL installed.
+Loss functions are registered with SkyRL for future BasePPOExp integration.
+
+Expects batches with keys:
 - log_probs: Tensor [B, T] or [B] (if pre-summed)
 - log_reward: Tensor [B]
 - mask: optional Tensor [B, T] (bool/int/float), True/1 for valid steps
 - entropy: optional Tensor [B] or [B, T]
+- eos_logprobs: optional Tensor [B, T] for modified SubTB loss
 
-Optimizer/lr scheduling is left to the caller; this module only computes loss
-and backward.
-
-Key design decisions:
+Design decisions:
 1. Optimizer is caller-managed: train_step() can optionally backward+step
 2. log_reward is detached: no gradient flow to reward function
-3. Uses existing subtb_loss from training/losses for actual loss computation
+3. Uses subtb_loss from training/losses (which registers with SkyRL if available)
+4. Supports both vanilla TB and modified SubTB (with EOS logprobs)
 """
 
 from __future__ import annotations
@@ -24,14 +26,18 @@ import torch
 import torch.nn as nn
 
 from synthstats.training.losses import subtb_loss
+from synthstats.training.losses.trajectory_balance import compute_modified_subtb_loss
 
 
 @dataclass
 class SubTBConfig:
     """Configuration for SubTB/TB training."""
 
-    beta: float = 0.1  # reward scaling (passed earlier via reward function)
+    beta: float = 0.1
     entropy_coef: float = 0.01
+    loss_type: str = "tb"  # "tb" or "modified_subtb"
+    subtb_lambda: float = 0.9
+    tb_max_residual: float = 100.0
     # Optional TB variants
     use_ref_policy: bool = False
     ref_weight: float = 1.0
@@ -101,6 +107,7 @@ class SkyRLSubTBTrainer:
           - mask: optional Tensor [B, T] (bool/int/float), True/1 for valid steps
           - entropy: optional Tensor [B] or [B, T]
           - ref_log_probs: optional Tensor [B, T] or [B]
+          - eos_logprobs: optional Tensor [B, T], EOS log probs for modified SubTB
 
         Returns:
             dict with keys:
@@ -122,6 +129,7 @@ class SkyRLSubTBTrainer:
         mask: torch.Tensor | None = batch.get("mask")
         entropy: torch.Tensor | None = batch.get("entropy")
         ref_log_probs: torch.Tensor | None = batch.get("ref_log_probs")
+        eos_logprobs: torch.Tensor | None = batch.get("eos_logprobs")
 
         # ensure logZ is on correct device
         if self.logZ.device != torch.device(self.device):
@@ -149,15 +157,60 @@ class SkyRLSubTBTrainer:
                 "use_ref_policy=True requires ref_log_probs in batch"
             )
 
-        loss_tensor = subtb_loss(
-            log_probs_2d,
-            mask_2d,
-            log_reward,
-            self.logZ,
-            ref_log_probs=ref_log_probs,
-            ref_weight=self.config.ref_weight,
-            normalize_by_length=self.config.normalize_by_length,
+        # choose loss function based on config
+        use_modified_subtb = (
+            self.config.loss_type == "modified_subtb" and eos_logprobs is not None
         )
+
+        if self.config.loss_type == "modified_subtb" and eos_logprobs is None:
+            import warnings
+            warnings.warn(
+                "modified_subtb requires eos_logprobs; falling back to vanilla TB",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if use_modified_subtb:
+            loss_config = {
+                "logZ": self.logZ,
+                "subtb_lambda": self.config.subtb_lambda,
+                "tb_max_residual": self.config.tb_max_residual,
+            }
+            class ConfigProxy:  # noqa: B903
+                def __init__(self, base_config: dict, eos: torch.Tensor) -> None:
+                    self._base = base_config
+                    self._eos_logprobs = eos
+
+                def get(self, key: str, default: Any = None) -> Any:
+                    return self._base.get(key, default)
+
+                def __getattr__(self, name: str) -> Any:
+                    if name.startswith("_"):
+                        return object.__getattribute__(self, name)
+                    return self._base.get(name)
+
+            config_proxy = ConfigProxy(loss_config, eos_logprobs)
+
+            B, T = log_probs_2d.shape
+            log_reward_broadcast = log_reward.unsqueeze(1).expand(B, T)
+
+            loss_tensor, _ = compute_modified_subtb_loss(
+                log_probs_2d,
+                log_probs_2d.detach(),
+                log_reward_broadcast,
+                config_proxy,
+                loss_mask=mask_2d,
+            )
+        else:
+            loss_tensor = subtb_loss(
+                log_probs_2d,
+                mask_2d,
+                log_reward,
+                self.logZ,
+                ref_log_probs=ref_log_probs,
+                ref_weight=self.config.ref_weight,
+                normalize_by_length=self.config.normalize_by_length,
+            )
 
         # compute raw TB loss for logging (before entropy bonus)
         raw_tb_loss = loss_tensor.item()

@@ -115,6 +115,9 @@ class MockHFPolicy:
         # dummy parameter for optimizer (so policy.parameters() works)
         self._dummy = nn.Parameter(torch.zeros(1, device=device))
 
+        # SubTB: track last EOS logprob for SimpleCollector
+        self._last_eos_logprob_final: float | None = None
+
     def __call__(
         self, obs: str, temperature: float | None = None
     ) -> PolicyOutput:
@@ -138,6 +141,10 @@ class MockHFPolicy:
         else:
             logp = -0.5
             ent = 0.1
+
+        # store final EOS logprob for SubTB flow matching
+        # (last element of eos_logprobs from the most recent generation)
+        self._last_eos_logprob_final = self._fixed_eos_logprobs[-1]
 
         return action, logp, ent
 
@@ -327,6 +334,9 @@ class HFPolicy:
         else:
             self.model.eval()
 
+        # SubTB: track last EOS logprob for SimpleCollector
+        self._last_eos_logprob_final: float | None = None
+
     def _apply_lora(self, lora_config: dict[str, Any]) -> None:
         """Apply LoRA adapter using PEFT."""
         try:
@@ -369,6 +379,8 @@ class HFPolicy:
         Returns:
             Tuple of (action_dict, log_prob, entropy)
         """
+        import torch.nn.functional as F
+
         prompt = self._build_prompt(obs)
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         prompt_len = int(inputs.input_ids.shape[1])
@@ -395,6 +407,15 @@ class HFPolicy:
             logp, ent = self._score_generated(seq, prompt_len)
         else:
             logp, ent = self._compute_logp_entropy(generation.scores, gen_ids)
+
+        # extract final EOS logprob for SubTB flow matching
+        self._last_eos_logprob_final = None
+        if generation.scores:
+            last_score = generation.scores[-1]
+            log_probs = F.log_softmax(last_score[0], dim=-1)
+            eos_id = self.tokenizer.eos_token_id
+            if eos_id is not None:
+                self._last_eos_logprob_final = float(log_probs[eos_id].item())
 
         # parse action from text
         action = self._parse_action(gen_text)
@@ -508,7 +529,8 @@ class HFPolicy:
             # handle gradient NaN: clamp log_probs before computing p*log(p)
             # this prevents d/dp[p*log(p)] = log(p) + 1 from becoming -inf + 1 = NaN at p=0
             eps = torch.finfo(log_probs.dtype).tiny
-            safe_log_probs = torch.clamp(log_probs, min=torch.log(torch.tensor(eps, device=log_probs.device)))
+            safe_min = torch.log(torch.tensor(eps, device=log_probs.device))
+            safe_log_probs = torch.clamp(log_probs, min=safe_min)
             term = safe_log_probs.exp() * safe_log_probs
             # also sanitize forward pass for any remaining numerical issues
             term = torch.nan_to_num(term, nan=0.0)

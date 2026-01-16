@@ -34,10 +34,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from synthstats.core.executor import Executor
+    from synthstats.core.executor import Executor, ToolResult
     from synthstats.core.judge import Judge
     from synthstats.core.task import Task
-    from synthstats.core.types import Trajectory
+    from synthstats.core.types import ToolCall
     from synthstats.runtime.codecs import ActionCodec
 
 # import-safe SkyRL types
@@ -91,10 +91,10 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
 
     def __init__(
         self,
-        task: "Task",
-        codec: "ActionCodec",
-        executors: dict[str, "Executor"] | None = None,
-        judge: "Judge | None" = None,
+        task: Task,
+        codec: ActionCodec,
+        executors: dict[str, Executor] | None = None,
+        judge: Judge | None = None,
         config: BoxingEnvConfig | None = None,
     ) -> None:
         if hasattr(super(), "__init__"):
@@ -162,7 +162,6 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         Returns:
             BaseTextEnvStepOutput with observations, reward, done, metadata
         """
-        from synthstats.core.executor import ToolResult
         from synthstats.core.types import ToolCall
         from synthstats.runtime.codecs import ParseError
 
@@ -251,7 +250,7 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
             "metadata": {},
         }
 
-    def _execute_tool(self, action: "ToolCall") -> "ToolResult":
+    def _execute_tool(self, action: ToolCall) -> ToolResult:
         """Execute a tool call."""
         from synthstats.core.executor import ToolResult
 
@@ -293,7 +292,14 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         trajectory_stub = type(
             "TrajectoryStub",
             (),
-            {"messages": messages, "reward": Reward(0.0, {}, {})},
+            {
+                "messages": messages,
+                "reward": Reward(0.0, {}, {}),
+                "token_ids": [],
+                "token_logprobs": [],
+                "loss_mask": [],
+                "eos_logprobs": [],
+            },
         )()
 
         try:

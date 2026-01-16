@@ -76,7 +76,8 @@ class Trajectory:
 
     Note on alignment:
     - messages: ALL messages in the conversation (system, user, assistant, tool)
-    - token_ids/token_logprobs/loss_mask/eos_logprobs: ONLY assistant generations (one entry per generate() call)
+    - token_ids/token_logprobs/loss_mask/eos_logprobs: ONLY assistant generations
+      (one entry per generate() call)
 
     This asymmetry is intentional: we only have token-level data for what the policy generated.
     Use len(token_ids) for number of generations, len(messages) for full conversation length.

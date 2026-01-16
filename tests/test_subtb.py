@@ -502,7 +502,8 @@ class TestMasking:
 
         # With lambda=1.0, all sub-trajectory lengths have equal weight
         # total_weight = 1.0*4 + 1.0*3 + 1.0*2 + 1.0*1 = 10
-        # (length 1: 4 positions, length 2: 3 positions, length 3: 2 positions, length 4: 1 position)
+        # (length 1: 4 positions, length 2: 3 positions,
+        # length 3: 2 positions, length 4: 1 position)
 
     def test_nan_at_masked_position_doesnt_propagate(self):
         """NaN/inf at masked positions should not corrupt the loss via cumsum.
@@ -717,3 +718,205 @@ class TestEndToEndSubTB:
         assert hasattr(gen, "eos_logprobs")
         assert len(gen.eos_logprobs) == len(gen.token_ids)
         assert len(gen.eos_logprobs) == len(gen.token_logprobs)
+
+
+class TestEOSLogprobPipeline:
+    """Test the full EOS logprob pipeline from policy to trainer."""
+
+    def test_mock_policy_stores_last_eos_logprob_final(self):
+        """MockHFPolicy should store _last_eos_logprob_final after __call__."""
+        from synthstats.policies.hf_policy import MockHFPolicy
+
+        policy = MockHFPolicy()
+
+        # before call, should be None
+        assert policy._last_eos_logprob_final is None
+
+        # after call, should be set
+        policy("test observation")
+        assert policy._last_eos_logprob_final is not None
+        assert isinstance(policy._last_eos_logprob_final, float)
+
+    def test_collected_trajectory_has_eos_logprobs_field(self):
+        """CollectedTrajectory should have eos_logprobs field."""
+        from synthstats.collectors.simple_collector import CollectedTrajectory
+
+        traj = CollectedTrajectory(
+            observations=["obs1"],
+            actions=[{"type": "answer", "payload": "42"}],
+            log_probs=torch.tensor([-0.5]),
+            entropy=torch.tensor([0.1]),
+            reward=1.0,
+            eos_logprobs=torch.tensor([-0.1]),
+        )
+
+        assert hasattr(traj, "eos_logprobs")
+        assert traj.eos_logprobs is not None
+        assert traj.eos_logprobs.shape == torch.Size([1])
+
+    def test_collected_trajectory_detach_preserves_eos_logprobs(self):
+        """CollectedTrajectory.detach() should preserve eos_logprobs."""
+        from synthstats.collectors.simple_collector import CollectedTrajectory
+
+        traj = CollectedTrajectory(
+            observations=["obs1"],
+            actions=[{"type": "answer", "payload": "42"}],
+            log_probs=torch.tensor([-0.5], requires_grad=True),
+            entropy=torch.tensor([0.1]),
+            reward=1.0,
+            eos_logprobs=torch.tensor([-0.1], requires_grad=True),
+        )
+
+        detached = traj.detach()
+
+        assert detached.eos_logprobs is not None
+        assert not detached.eos_logprobs.requires_grad
+        assert detached.eos_logprobs.device == torch.device("cpu")
+
+    def test_build_subtb_batch_includes_eos_logprobs(self):
+        """build_subtb_batch should include eos_logprobs when available."""
+        from synthstats.collectors.simple_collector import (
+            CollectedTrajectory,
+            build_subtb_batch,
+        )
+
+        trajs = [
+            CollectedTrajectory(
+                observations=["obs1"],
+                actions=[{"type": "answer", "payload": "42"}],
+                log_probs=torch.tensor([-0.5, -0.3]),
+                entropy=torch.tensor([0.1, 0.2]),
+                reward=1.0,
+                eos_logprobs=torch.tensor([-0.1, -0.2]),
+            ),
+            CollectedTrajectory(
+                observations=["obs2"],
+                actions=[{"type": "answer", "payload": "24"}],
+                log_probs=torch.tensor([-0.4, -0.2, -0.1]),
+                entropy=torch.tensor([0.15, 0.25, 0.35]),
+                reward=2.0,
+                eos_logprobs=torch.tensor([-0.15, -0.25, -0.35]),
+            ),
+        ]
+
+        batch = build_subtb_batch(trajs, reward_floor=1e-4)
+
+        assert "eos_logprobs" in batch
+        assert batch["eos_logprobs"].shape == batch["log_probs"].shape
+        # shape should be [2, 3] due to padding
+        assert batch["eos_logprobs"].shape == torch.Size([2, 3])
+
+    def test_build_subtb_batch_without_eos_logprobs(self):
+        """build_subtb_batch should work without eos_logprobs."""
+        from synthstats.collectors.simple_collector import (
+            CollectedTrajectory,
+            build_subtb_batch,
+        )
+
+        trajs = [
+            CollectedTrajectory(
+                observations=["obs1"],
+                actions=[{"type": "answer", "payload": "42"}],
+                log_probs=torch.tensor([-0.5]),
+                entropy=torch.tensor([0.1]),
+                reward=1.0,
+                eos_logprobs=None,  # no EOS logprobs
+            ),
+        ]
+
+        batch = build_subtb_batch(trajs, reward_floor=1e-4)
+
+        # should not have eos_logprobs key
+        assert "eos_logprobs" not in batch
+
+    def test_build_subtb_batch_mixed_eos_logprobs_raises(self):
+        """build_subtb_batch should raise on mixed eos_logprobs."""
+        from synthstats.collectors.simple_collector import (
+            CollectedTrajectory,
+            build_subtb_batch,
+        )
+
+        trajs = [
+            CollectedTrajectory(
+                observations=["obs1"],
+                actions=[{"type": "answer", "payload": "42"}],
+                log_probs=torch.tensor([-0.5]),
+                entropy=torch.tensor([0.1]),
+                reward=1.0,
+                eos_logprobs=torch.tensor([-0.1]),  # has EOS
+            ),
+            CollectedTrajectory(
+                observations=["obs2"],
+                actions=[{"type": "answer", "payload": "24"}],
+                log_probs=torch.tensor([-0.4]),
+                entropy=torch.tensor([0.15]),
+                reward=2.0,
+                eos_logprobs=None,  # no EOS
+            ),
+        ]
+
+        with pytest.raises(ValueError, match="mixed eos_logprobs"):
+            build_subtb_batch(trajs, reward_floor=1e-4)
+
+    def test_skyrl_trainer_uses_vanilla_tb_by_default(self):
+        """SkyRLSubTBTrainer should use vanilla TB by default."""
+        from synthstats.trainers.skyrl_subtb import SkyRLSubTBTrainer, SubTBConfig
+
+        config = SubTBConfig()  # default loss_type="tb"
+        trainer = SkyRLSubTBTrainer(config=config)
+
+        batch = {
+            "log_probs": torch.randn(2, 5),
+            "log_reward": torch.tensor([1.0, 2.0]),
+            "mask": torch.ones(2, 5, dtype=torch.bool),
+            "entropy": torch.randn(2, 5),
+        }
+
+        result = trainer.train_step(batch)
+
+        assert "loss" in result
+        assert "logZ" in result
+        assert not torch.isnan(torch.tensor(result["loss"]))
+
+    def test_skyrl_trainer_uses_modified_subtb_with_eos_logprobs(self):
+        """SkyRLSubTBTrainer should use modified SubTB when configured."""
+        from synthstats.trainers.skyrl_subtb import SkyRLSubTBTrainer, SubTBConfig
+
+        config = SubTBConfig(loss_type="modified_subtb")
+        trainer = SkyRLSubTBTrainer(config=config)
+
+        batch = {
+            "log_probs": torch.randn(2, 5),
+            "log_reward": torch.tensor([1.0, 2.0]),
+            "mask": torch.ones(2, 5, dtype=torch.bool),
+            "entropy": torch.randn(2, 5),
+            "eos_logprobs": torch.randn(2, 5),  # EOS logprobs provided
+        }
+
+        result = trainer.train_step(batch)
+
+        assert "loss" in result
+        assert "logZ" in result
+        assert not torch.isnan(torch.tensor(result["loss"]))
+
+    def test_skyrl_trainer_falls_back_to_vanilla_without_eos(self):
+        """SkyRLSubTBTrainer should fall back to vanilla TB without EOS logprobs."""
+        from synthstats.trainers.skyrl_subtb import SkyRLSubTBTrainer, SubTBConfig
+
+        config = SubTBConfig(loss_type="modified_subtb")  # request SubTB
+        trainer = SkyRLSubTBTrainer(config=config)
+
+        # no eos_logprobs in batch - should fall back to vanilla TB
+        batch = {
+            "log_probs": torch.randn(2, 5),
+            "log_reward": torch.tensor([1.0, 2.0]),
+            "mask": torch.ones(2, 5, dtype=torch.bool),
+            "entropy": torch.randn(2, 5),
+            # no eos_logprobs key
+        }
+
+        result = trainer.train_step(batch)
+
+        # should still work (vanilla TB)
+        assert "loss" in result
+        assert not torch.isnan(torch.tensor(result["loss"]))

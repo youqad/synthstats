@@ -53,6 +53,7 @@ class CollectedTrajectory:
     # optional fields
     ref_log_probs: torch.Tensor | None = None
     temperature: float = 1.0  # temperature used during collection
+    eos_logprobs: torch.Tensor | None = None  # [T] log P(EOS|state) for SubTB
     # Tinker-specific: raw text for API-based training
     prompts: list[str] | None = None  # full prompts at each step
     completions: list[str] | None = None  # generated completions at each step
@@ -68,6 +69,11 @@ class CollectedTrajectory:
             if self.ref_log_probs is not None
             else None
         )
+        eos_logprobs = (
+            self.eos_logprobs.detach().cpu()
+            if self.eos_logprobs is not None
+            else None
+        )
         return CollectedTrajectory(
             observations=self.observations,
             actions=self.actions,
@@ -76,6 +82,7 @@ class CollectedTrajectory:
             entropy=self.entropy.detach().cpu(),
             reward=self.reward,
             temperature=self.temperature,
+            eos_logprobs=eos_logprobs,
             prompts=self.prompts,
             completions=self.completions,
         )
@@ -171,6 +178,7 @@ class SimpleCollector:
             logps: list[torch.Tensor] = []
             ref_logps: list[torch.Tensor] = []
             ents: list[torch.Tensor] = []
+            eos_logps: list[torch.Tensor] = []
             done = False
             total_reward = 0.0
 
@@ -185,6 +193,11 @@ class SimpleCollector:
                     )
                 else:
                     action, logp, ent = cast(PolicyFnLegacy, self.policy_fn)(obs)
+
+                # grab EOS logprob if policy tracks it
+                eos_logp = getattr(self.policy_fn, "_last_eos_logprob_final", None)
+                if eos_logp is not None:
+                    eos_logps.append(self._to_tensor(eos_logp))
 
                 if compute_ref_log_probs:
                     with torch.no_grad():
@@ -218,6 +231,19 @@ class SimpleCollector:
                 if not done and result["observations"]:
                     obs = self._extract_observation(result["observations"])
 
+            # stack EOS logprobs if we got the full set
+            eos_logprobs_t: torch.Tensor | None = None
+            if eos_logps:
+                if len(eos_logps) == len(logps):
+                    eos_logprobs_t = torch.stack(eos_logps)
+                else:
+                    import warnings
+                    warnings.warn(
+                        f"partial EOS logprobs ({len(eos_logps)}/{len(logps)}), discarding",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
             trajectories.append(
                 CollectedTrajectory(
                     observations=obs_list,
@@ -229,6 +255,7 @@ class SimpleCollector:
                     entropy=torch.stack(ents) if ents else torch.zeros(0),
                     reward=total_reward,
                     temperature=temperature,
+                    eos_logprobs=eos_logprobs_t,
                 )
             )
 
@@ -245,13 +272,15 @@ class SimpleCollector:
         current score_fn. This eliminates off-policy bias from stale
         log_probs stored at collection time.
 
+        Note: eos_logprobs will be None for replayed trajectories (score_fn
+        can't compute EOS probs). Use vanilla TB with replay, not modified_subtb.
+
         Args:
             entry: BufferEntry with actions and observations
             temperature: Sampling temperature for scoring
 
         Returns:
-            CollectedTrajectory with fresh log_probs from current policy,
-            or None if replay fails (e.g., invalid action, env error)
+            CollectedTrajectory with fresh log_probs, or None on failure.
 
         Raises:
             ValueError: If score_fn is not available
@@ -278,7 +307,7 @@ class SimpleCollector:
 
         # NOTE: No torch.no_grad() - we NEED gradients for policy learning!
         # The whole point of re-scoring is to get fresh, differentiable log_probs
-        for obs, action in zip(observations, entry.actions, strict=False):
+        for obs, action in zip(observations, entry.actions, strict=True):
             if self._score_accepts_temp:
                 logp, ent = cast(ScoreFnWithTemp, self.score_fn)(
                     obs, action, temperature
@@ -419,6 +448,7 @@ def build_subtb_batch(
           - mask: [B, T_max] (bool) where True indicates a real step
           - log_reward: [B] (no grad; terminal reward is treated as constant)
           - entropy: [B, T_max] (float), padded with 0.0
+          - eos_logprobs: [B, T_max] (optional)
 
     Raises:
         ValueError: If trajectories is empty or has invalid data
@@ -433,7 +463,9 @@ def build_subtb_batch(
 
     log_prob_seqs: list[torch.Tensor] = []
     ent_seqs: list[torch.Tensor] = []
+    eos_logprob_seqs: list[torch.Tensor] | None = None
     ref_log_prob_seqs: list[torch.Tensor] | None = None
+
     has_ref = [t.ref_log_probs is not None for t in trajectories]
     if any(has_ref) and not all(has_ref):
         raise ValueError(
@@ -442,6 +474,15 @@ def build_subtb_batch(
         )
     if all(has_ref):
         ref_log_prob_seqs = []
+
+    has_eos = [t.eos_logprobs is not None for t in trajectories]
+    if any(has_eos) and not all(has_eos):
+        raise ValueError(
+            "mixed eos_logprobs: either provide eos_logprobs for all "
+            "trajectories or none"
+        )
+    if all(has_eos):
+        eos_logprob_seqs = []
 
     for i, t in enumerate(trajectories):
         if not isinstance(t.log_probs, torch.Tensor):
@@ -500,6 +541,29 @@ def build_subtb_batch(
                 )
             ref_log_prob_seqs.append(ref.to(device_t))
 
+        if eos_logprob_seqs is not None:
+            eos = t.eos_logprobs
+            if eos is None:
+                raise ValueError(
+                    f"trajectory[{i}] missing eos_logprobs while others provide it"
+                )
+            if not isinstance(eos, torch.Tensor):
+                raise ValueError(
+                    f"trajectory[{i}].eos_logprobs must be a torch.Tensor, "
+                    f"got {type(eos).__name__}"
+                )
+            if eos.dim() != 1:
+                raise ValueError(
+                    f"trajectory[{i}].eos_logprobs must be 1D [T], "
+                    f"got shape {tuple(eos.shape)}"
+                )
+            if eos.numel() != t.log_probs.numel():
+                raise ValueError(
+                    f"trajectory[{i}] length mismatch: eos_logprobs has T={eos.numel()} "
+                    f"but log_probs has T={t.log_probs.numel()}"
+                )
+            eos_logprob_seqs.append(eos.to(device_t))
+
     # pad sequences
     log_probs = pad_sequence(log_prob_seqs, batch_first=True, padding_value=0.0)
     entropy = pad_sequence(ent_seqs, batch_first=True, padding_value=0.0)
@@ -507,6 +571,11 @@ def build_subtb_batch(
     if ref_log_prob_seqs is not None:
         ref_log_probs = pad_sequence(
             ref_log_prob_seqs, batch_first=True, padding_value=0.0
+        )
+    eos_logprobs = None
+    if eos_logprob_seqs is not None:
+        eos_logprobs = pad_sequence(
+            eos_logprob_seqs, batch_first=True, padding_value=0.0
         )
 
     # create mask
@@ -530,13 +599,17 @@ def build_subtb_batch(
     )
     log_reward = torch.log(rewards).detach()
 
-    return {
+    result: dict[str, torch.Tensor] = {
         "log_probs": log_probs,
         "mask": mask,
         "log_reward": log_reward,
         "entropy": entropy,
-        **({"ref_log_probs": ref_log_probs} if ref_log_probs is not None else {}),
     }
+    if ref_log_probs is not None:
+        result["ref_log_probs"] = ref_log_probs
+    if eos_logprobs is not None:
+        result["eos_logprobs"] = eos_logprobs
+    return result
 
 
 def build_tinker_batch(
