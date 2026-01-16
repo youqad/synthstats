@@ -55,6 +55,23 @@ BLOCKED_MODULES = frozenset({
     "code",
     "codeop",
     "runpy",
+    # network and file bypass modules
+    "requests",
+    "tempfile",
+    # memory introspection
+    "gc",
+    # persistence via exit hooks
+    "atexit",
+    # memory mapping bypass
+    "mmap",
+    # file creation bypasses
+    "sqlite3",
+    "logging",
+    # crypto (reduces attack surface)
+    "ssl",
+    # serialization (RCE via __reduce__, defense in depth)
+    "pickle",
+    "_pickle",
 })
 
 # built-in functions that allow code execution or file access
