@@ -5,10 +5,10 @@ For the archived SkyRLSubTBTrainer, see: _archive/skyrl_integration_2026-01/
 """
 
 from synthstats.training.tb_trainer import (
+    SKYRL_AVAILABLE,
+    LogZModule,
     TBTrainer,
     TBTrainerMixin,
-    LogZModule,
-    SKYRL_AVAILABLE,
 )
 
 __all__ = [

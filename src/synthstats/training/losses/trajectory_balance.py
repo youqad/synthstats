@@ -25,7 +25,7 @@ This design works correctly with Ray distributed workers because:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
@@ -86,9 +86,9 @@ def compute_trajectory_balance_loss(
     log_probs: Tensor,
     old_log_probs: Tensor,
     advantages: Tensor,
-    config: "DictConfig | dict[str, Any]",
-    loss_mask: Optional[Tensor] = None,
-    rollout_log_probs: Optional[Tensor] = None,
+    config: DictConfig | dict[str, Any],
+    loss_mask: Tensor | None = None,
+    rollout_log_probs: Tensor | None = None,
 ) -> tuple[Tensor, float]:
     """Trajectory Balance loss for GFlowNets.
 
@@ -190,9 +190,9 @@ def compute_modified_subtb_loss(
     log_probs: Tensor,
     old_log_probs: Tensor,
     advantages: Tensor,
-    config: "DictConfig | dict[str, Any]",
-    loss_mask: Optional[Tensor] = None,
-    rollout_log_probs: Optional[Tensor] = None,
+    config: DictConfig | dict[str, Any],
+    loss_mask: Tensor | None = None,
+    rollout_log_probs: Tensor | None = None,
 ) -> tuple[Tensor, float]:
     """Modified Sub-Trajectory Balance loss from gfn-lm-tuning.
 

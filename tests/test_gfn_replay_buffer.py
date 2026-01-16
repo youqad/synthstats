@@ -8,7 +8,6 @@ from stale log_probs.
 from dataclasses import dataclass, field
 from typing import Any
 
-import pytest
 import torch
 
 

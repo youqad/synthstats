@@ -31,18 +31,16 @@ this script provides a simplified training loop.
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
-from typing import Any
 
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
+
 # register TB loss on import (SkyRL registry-based)
 from synthstats.training.losses import trajectory_balance as _trajectory_balance  # noqa: F401
-from synthstats.training.tb_trainer import LogZModule, SKYRL_AVAILABLE
-from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
+from synthstats.training.tb_trainer import SKYRL_AVAILABLE, LogZModule
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -67,21 +65,18 @@ def verify_tb_loss_registered() -> bool:
 
 def create_boxing_env(cfg: DictConfig) -> BoxingEnv:
     """Create BoxingEnv from Hydra config."""
-    from synthstats.tasks.boxing import BoxingTask
-    from synthstats.tasks.boxing.codecs import BoxingCodec
     from synthstats.executors.pymc_sandbox import PyMCExecutor
     from synthstats.judges.likelihood import LikelihoodJudge
+    from synthstats.tasks.boxing import BoxingTask
+    from synthstats.tasks.boxing.codecs import BoxingCodec
 
-    # get task
     task_name = cfg.get("env", {}).get("name", "dugongs")
     task = BoxingTask(env_name=task_name)
 
-    # create components
     codec = BoxingCodec()
     executors = {"pymc": PyMCExecutor()}
     judge = LikelihoodJudge()
 
-    # config
     env_config = BoxingEnvConfig(
         max_turns=cfg.get("env", {}).get("max_turns", 20),
         reward_floor=cfg.get("trainer", {}).get("reward_floor", 1e-4),
@@ -106,19 +101,15 @@ def run_local_training(cfg: DictConfig) -> dict[str, float]:
 
     logger.info("Running local training mode (simplified, no vLLM/Ray)")
 
-    # create environment
     env = create_boxing_env(cfg)
     logger.info(f"Created env: {env.task.name}")
 
-    # create logZ module
     logZ_init = cfg.get("trainer", {}).get("logZ_init", 0.0)
     logZ_lr = cfg.get("trainer", {}).get("logZ_lr", 0.01)
     logZ_module = LogZModule(init_value=logZ_init)
     logZ_optimizer = torch.optim.Adam(logZ_module.parameters(), lr=logZ_lr)
 
-    # training params
     num_episodes = cfg.get("trainer", {}).get("num_episodes", 10)
-    batch_size = cfg.get("trainer", {}).get("batch_size", 2)
 
     metrics: dict[str, list[float]] = {
         "loss": [],
@@ -126,7 +117,6 @@ def run_local_training(cfg: DictConfig) -> dict[str, float]:
         "reward": [],
     }
 
-    # simplified training loop (for testing)
     for ep in range(num_episodes):
         # collect episode (simplified - no actual generation)
         obs, info = env.init()
@@ -165,7 +155,6 @@ def run_local_training(cfg: DictConfig) -> dict[str, float]:
                 f"reward={reward:.4f}"
             )
 
-    # return summary
     return {
         "mean_loss": sum(metrics["loss"]) / len(metrics["loss"]),
         "final_logZ": metrics["logZ"][-1],
@@ -180,13 +169,10 @@ def main(cfg: DictConfig) -> None:
     logger.info("SynthStats Native SkyRL Training")
     logger.info("=" * 60)
 
-    # print config
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
-    # verify TB loss is registered
     tb_registered = verify_tb_loss_registered()
 
-    # check for dry run
     if cfg.get("dry_run", False):
         logger.info("Dry run mode - skipping actual training")
         return
@@ -201,7 +187,6 @@ def main(cfg: DictConfig) -> None:
         logger.info("")
         logger.info("Running local training mode for testing...")
 
-    # run local training (simplified)
     results = run_local_training(cfg)
 
     logger.info("=" * 60)

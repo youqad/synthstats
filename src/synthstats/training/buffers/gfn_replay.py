@@ -27,7 +27,6 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-
 if TYPE_CHECKING:
     pass  # no external type dependencies
 
@@ -37,7 +36,7 @@ class ReplayCollector(Protocol):
     """Protocol for collectors that support replay."""
 
     def replay_entry(
-        self, entry: "BufferEntry", temperature: float = 1.0
+        self, entry: BufferEntry, temperature: float = 1.0
     ) -> Any | None:
         """Replay a buffer entry and return fresh trajectory."""
         ...

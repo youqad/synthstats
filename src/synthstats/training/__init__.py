@@ -1,13 +1,13 @@
 """Training components for SynthStats."""
 
 from synthstats.training.losses import subtb_loss
-from synthstats.training.trainer import Trainer, TrainerConfig, TrainMetrics
 from synthstats.training.tb_trainer import (
+    SKYRL_AVAILABLE,
+    LogZModule,
     TBTrainer,
     TBTrainerMixin,
-    LogZModule,
-    SKYRL_AVAILABLE,
 )
+from synthstats.training.trainer import Trainer, TrainerConfig, TrainMetrics
 
 __all__ = [
     # core trainer

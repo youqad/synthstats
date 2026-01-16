@@ -82,7 +82,7 @@ class TBTrainerMixin:
         """Current logZ value."""
         return self.logZ_module.logZ
 
-    def inject_logZ_into_config(self, config: "DictConfig | dict[str, Any]") -> None:
+    def inject_logZ_into_config(self, config: DictConfig | dict[str, Any]) -> None:
         """Inject current logZ value into config for loss computation.
 
         This must be called before each training step to ensure the
@@ -172,7 +172,7 @@ try:
 
         def __init__(
             self,
-            config: "DictConfig",
+            config: DictConfig,
             *args: Any,
             logZ_init: float | None = None,
             logZ_lr: float | None = None,
@@ -196,7 +196,7 @@ try:
             # verify config
             self._verify_tb_config(config)
 
-        def _verify_tb_config(self, config: "DictConfig") -> None:
+        def _verify_tb_config(self, config: DictConfig) -> None:
             """Verify config has correct TB settings."""
             algorithm = config.trainer.algorithm
 
@@ -282,7 +282,7 @@ class SubTBTrainerMixin(TBTrainerMixin):
 
     def inject_subtb_data(
         self,
-        config: "DictConfig | dict[str, Any]",
+        config: DictConfig | dict[str, Any],
         eos_logprobs: torch.Tensor,
     ) -> None:
         """Inject SubTB-specific data into config.
@@ -328,7 +328,7 @@ try:
 
         def __init__(
             self,
-            config: "DictConfig",
+            config: DictConfig,
             *args: Any,
             logZ_init: float | None = None,
             logZ_lr: float | None = None,
@@ -352,7 +352,7 @@ try:
             # verify config
             self._verify_subtb_config(config)
 
-        def _verify_subtb_config(self, config: "DictConfig") -> None:
+        def _verify_subtb_config(self, config: DictConfig) -> None:
             """Verify config has correct SubTB settings."""
             algorithm = config.trainer.algorithm
 
