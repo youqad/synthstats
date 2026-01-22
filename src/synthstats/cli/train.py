@@ -19,18 +19,11 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def get_device(device_cfg: str) -> str:
-    """Resolve device configuration to actual device string.
-
-    Args:
-        device_cfg: Device config value ("auto", "cpu", "cuda", "mps", etc.)
-
-    Returns:
-        Resolved device string.
-    """
+    """Resolve 'auto' to actual device string."""
     if device_cfg == "auto":
         if torch.cuda.is_available():
             return "cuda"
@@ -54,22 +47,12 @@ def set_seed(seed: int) -> None:
 
 
 def build_policy(cfg: DictConfig, device: str) -> Any:
-    """Instantiate the policy based on config.
-
-    Args:
-        cfg: Full Hydra config with model settings.
-        device: Resolved device string.
-
-    Returns:
-        Policy instance (HFPolicy or MockPolicy).
-    """
+    """Instantiate the policy from config."""
     model_cfg = cfg.model
-
-    # check for mock policy (for testing)
     if getattr(model_cfg, "mock", False):
         from synthstats.policies.hf_policy import MockPolicy
 
-        log.info("Using MockPolicy for testing")
+        logger.info("Using MockPolicy for testing")
         return MockPolicy(
             fixed_text=getattr(model_cfg, "fixed_text", '{"answer": "test"}'),
             fixed_token_ids=list(getattr(model_cfg, "fixed_token_ids", [1, 2, 3])),
@@ -80,7 +63,7 @@ def build_policy(cfg: DictConfig, device: str) -> Any:
 
     from synthstats.policies.hf_policy import HFPolicy
 
-    log.info(f"Loading model: {model_cfg.name}")
+    logger.info(f"Loading model: {model_cfg.name}")
     return HFPolicy(
         model_name=model_cfg.name,
         device=device,
@@ -89,26 +72,19 @@ def build_policy(cfg: DictConfig, device: str) -> Any:
 
 
 def build_task(cfg: DictConfig) -> Any:
-    """Instantiate the task based on config.
-
-    Args:
-        cfg: Full Hydra config with task settings.
-
-    Returns:
-        Task instance.
-    """
+    """Instantiate the task from config."""
     task_cfg = cfg.task
 
     if task_cfg.name == "toy":
         from synthstats.training.trainer import ToyTask
 
-        log.info("Using ToyTask")
+        logger.info("Using ToyTask")
         return ToyTask()
 
     if task_cfg.name == "boxing":
         from synthstats.tasks.boxing.task import BoxingTask
 
-        log.info(f"Using BoxingTask with env={task_cfg.env}")
+        logger.info(f"Using BoxingTask with env={task_cfg.env}")
         return BoxingTask(
             env_name=task_cfg.env,
             max_steps=getattr(task_cfg, "max_steps", 20),
@@ -118,14 +94,7 @@ def build_task(cfg: DictConfig) -> Any:
 
 
 def build_codec(cfg: DictConfig) -> Any:
-    """Instantiate the codec based on config.
-
-    Args:
-        cfg: Full Hydra config with runtime settings.
-
-    Returns:
-        ActionCodec instance.
-    """
+    """Instantiate the codec from config."""
     codec_name = cfg.runtime.codec
 
     if codec_name == "json":
@@ -142,17 +111,8 @@ def build_codec(cfg: DictConfig) -> Any:
 
 
 def build_judge(cfg: DictConfig) -> Any:
-    """Instantiate the judge based on config.
-
-    Args:
-        cfg: Full Hydra config with judge settings.
-
-    Returns:
-        Judge instance.
-    """
+    """Instantiate the judge from config."""
     judge_cfg = cfg.judge
-
-    # build individual judges from config
     judges_with_weights: list[tuple[Any, float]] = []
 
     for judge_spec in judge_cfg.judges:
@@ -176,14 +136,7 @@ def build_judge(cfg: DictConfig) -> Any:
 
 
 def build_trainer_config(cfg: DictConfig) -> Any:
-    """Build TrainerConfig from Hydra config.
-
-    Args:
-        cfg: Full Hydra config with trainer settings.
-
-    Returns:
-        TrainerConfig instance.
-    """
+    """Build TrainerConfig from Hydra config."""
     from synthstats.training.trainer import TrainerConfig
 
     trainer_cfg = cfg.trainer
@@ -200,14 +153,7 @@ def build_trainer_config(cfg: DictConfig) -> Any:
 
 
 def setup_wandb(cfg: DictConfig) -> bool:
-    """Initialize WandB if enabled.
-
-    Args:
-        cfg: Full Hydra config.
-
-    Returns:
-        True if WandB was initialized, False otherwise.
-    """
+    """Initialize WandB if enabled. Returns True on success."""
     wandb_cfg = cfg.get("wandb", {})
     if not wandb_cfg.get("enabled", False):
         return False
@@ -223,30 +169,23 @@ def setup_wandb(cfg: DictConfig) -> bool:
         )
         run = wandb.run
         if run is not None:
-            log.info(f"WandB initialized: {run.name}")
+            logger.info(f"WandB initialized: {run.name}")
         else:
-            log.info("WandB initialized")
+            logger.info("WandB initialized")
         return True
     except ImportError:
-        log.warning("wandb not installed, skipping WandB logging")
+        logger.warning("wandb not installed, skipping WandB logging")
         return False
     except Exception as e:
-        log.warning(f"Failed to initialize WandB: {e}")
+        logger.warning(f"Failed to initialize WandB: {e}")
         return False
 
 
 def create_log_callback(use_wandb: bool):
-    """Create a logging callback for training metrics.
-
-    Args:
-        use_wandb: Whether to log to WandB.
-
-    Returns:
-        Callback function for trainer.
-    """
+    """Create a logging callback for training metrics."""
 
     def callback(metrics, step: int) -> None:
-        log.info(
+        logger.info(
             f"Step {step}: loss={metrics.loss:.4f}, "
             f"logZ={metrics.logZ:.4f}, "
             f"avg_reward={metrics.avg_reward:.4f}"
@@ -277,17 +216,7 @@ def save_checkpoint(
     step: int,
     is_final: bool = False,
 ) -> Path:
-    """Save a training checkpoint.
-
-    Args:
-        trainer: Trainer instance.
-        output_dir: Directory to save checkpoint.
-        step: Current training step.
-        is_final: Whether this is the final checkpoint.
-
-    Returns:
-        Path to saved checkpoint.
-    """
+    """Save a training checkpoint."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if is_final:
@@ -302,64 +231,40 @@ def save_checkpoint(
     }
 
     torch.save(checkpoint, ckpt_path)
-    log.info(f"Saved checkpoint: {ckpt_path}")
+    logger.info(f"Saved checkpoint: {ckpt_path}")
     return ckpt_path
 
 
 def load_checkpoint(trainer: Any, checkpoint_path: Path) -> int:
-    """Load a training checkpoint.
-
-    Args:
-        trainer: Trainer instance to restore.
-        checkpoint_path: Path to checkpoint file.
-
-    Returns:
-        Step number from checkpoint.
-    """
+    """Load a training checkpoint. Returns the restored step number."""
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-
-    # restore logZ
     trainer._logZ.data.fill_(checkpoint["logZ"])
-
-    # restore optimizer
     trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
     step = checkpoint["step"]
-    log.info(f"Loaded checkpoint from step {step}: {checkpoint_path}")
+    logger.info(f"Loaded checkpoint from step {step}: {checkpoint_path}")
     return step
 
 
 @hydra.main(version_base=None, config_path="../../../configs", config_name="config")
 def main(cfg: DictConfig) -> float:
-    """Main training entry point.
+    """Main training entry point. Returns final loss for HPO."""
+    logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 
-    Args:
-        cfg: Hydra configuration.
-
-    Returns:
-        Final loss value (for hyperparameter optimization).
-    """
-    log.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
-
-    # resolve device
     device = get_device(cfg.device)
-    log.info(f"Using device: {device}")
+    logger.info(f"Using device: {device}")
 
-    # set seed
     set_seed(cfg.seed)
-    log.info(f"Random seed: {cfg.seed}")
+    logger.info(f"Random seed: {cfg.seed}")
 
-    # build components
     policy = build_policy(cfg, device)
     task = build_task(cfg)
     codec = build_codec(cfg)
     judge = build_judge(cfg)
     trainer_config = build_trainer_config(cfg)
 
-    # setup wandb
     use_wandb = setup_wandb(cfg)
 
-    # create trainer
     from synthstats.training.trainer import Trainer
 
     trainer = Trainer(
@@ -372,11 +277,9 @@ def main(cfg: DictConfig) -> float:
         log_callback=create_log_callback(use_wandb),
     )
 
-    # resolve output directory
     output_dir = Path(cfg.output_dir)
-    log.info(f"Output directory: {output_dir}")
+    logger.info(f"Output directory: {output_dir}")
 
-    # check for resume checkpoint
     start_step = 0
     resume_path = cfg.get("resume_from")
     if resume_path:
@@ -384,50 +287,45 @@ def main(cfg: DictConfig) -> float:
         if resume_path.exists():
             start_step = load_checkpoint(trainer, resume_path)
 
-    # setup graceful shutdown
     shutdown_requested = False
 
     def handle_signal(signum, frame):
         nonlocal shutdown_requested
         if shutdown_requested:
-            log.warning("Force shutdown requested")
+            logger.warning("Force shutdown requested")
             sys.exit(1)
-        log.info("Shutdown requested, finishing current step...")
+        logger.info("Shutdown requested, finishing current step...")
         shutdown_requested = True
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # training loop
     num_steps = trainer_config.max_episodes
     final_loss = 0.0
 
     try:
         for step in range(start_step, num_steps):
             if shutdown_requested:
-                log.info("Shutting down gracefully...")
+                logger.info("Shutting down gracefully...")
                 save_checkpoint(trainer, output_dir, step, is_final=False)
                 break
 
             metrics = trainer.train_step()
             final_loss = metrics.loss
 
-            # periodic checkpoint
             checkpoint_interval = cfg.get("checkpoint_interval", 100)
             if (step + 1) % checkpoint_interval == 0:
                 save_checkpoint(trainer, output_dir, step + 1)
 
         else:
-            # training completed normally
-            log.info("Training completed!")
+            logger.info("Training completed")
             save_checkpoint(trainer, output_dir, num_steps, is_final=True)
 
     except Exception as e:
-        log.error(f"Training failed: {e}")
+        logger.error(f"Training failed: {e}")
         raise
 
     finally:
-        # cleanup wandb
         if use_wandb:
             try:
                 import wandb
@@ -436,10 +334,9 @@ def main(cfg: DictConfig) -> float:
             except Exception:
                 pass
 
-    # final evaluation
-    log.info("Running final evaluation...")
+    logger.info("Running final evaluation...")
     eval_results = trainer.evaluate(num_episodes=10)
-    log.info(f"Final evaluation: {eval_results}")
+    logger.info(f"Final evaluation: {eval_results}")
 
     return final_loss
 

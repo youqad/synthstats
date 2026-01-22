@@ -1,0 +1,107 @@
+# @package _global_
+# GFlowNet distributed training base config
+#
+# Run with:
+#   uv run python scripts/train_distributed.py --config-name distributed/gfn_base
+
+defaults:
+  - /model: qwen3_0.6b
+  - /task: boxing
+  - /judge: composite
+  - /runtime: default
+  - ray: default
+  - _self_
+
+seed: 42
+output_dir: outputs/distributed/${now:%Y-%m-%d_%H-%M-%S}
+
+gfn:
+  loss_type: modified_subtb  # or "tb"
+  subtb_lambda: 0.9
+  tb_max_residual: 100.0
+
+  logZ_init: 0.0
+  lr_logZ: 0.01  # 10x base LR
+
+  # replay buffer
+  replay_buffer_size: 10000
+  replay_ratio: 0.5
+  prioritized_replay: true
+  replay_alpha: 1.0
+  min_buffer_before_replay: 100
+
+  entropy_coef: 0.01  # 0 to disable
+
+  # FlowRL/TBA enhancements (arXiv:2509.15207, arXiv:2503.18929)
+  length_normalize: true  # prevents short-response bias
+  recency_ratio: 0.5  # 0=reward-prioritized, 1=FIFO, 0.5-0.6 optimal
+  deduplicate_buffer: true
+
+  score_chunk_size: null  # for 30B+ models
+
+  # re-score with local model for gradient flow (debug/validation only)
+  use_local_scoring_for_training: true
+
+  temperature: 0.7
+
+  # logZ mode: "learned" (default) or "vargrad" (TBA arXiv:2503.18929)
+  # vargrad: estimates logZ from batch, no learned parameter (requires K>1 responses)
+  logz_mode: learned
+
+  # reward temperature β (FlowRL arXiv:2509.15207)
+  # scales log_rewards in loss; FlowRL uses β=15, default 1.0
+  reward_temp: 1.0
+
+  # reference model KL regularization
+  # subtracts (1/|y|)·log π_ref from TB residual
+  use_reference_kl: false
+
+  # importance weights for off-policy correction (FlowRL)
+  use_importance_weights: false
+
+trainer:
+  lr: 0.0001
+  max_grad_norm: 1.0
+
+  global_batch_size: 32
+  mini_batch_size: 4
+  policy_epochs: 1
+
+  strategy: fsdp2  # or megatron
+
+  policy:
+    model:
+      path: ${model.name}
+      dtype: bfloat16
+    num_workers: 1
+    num_gpus_per_worker: 1
+    lora:
+      enabled: true
+      r: 16
+      alpha: 32
+      dropout: 0.05
+
+  use_reference_model: false  # for KL penalty
+
+  checkpoint:
+    enabled: true
+    save_steps: 500
+    save_dir: ${output_dir}/checkpoints
+
+generator:
+  backend: vllm  # or sglang
+  max_new_tokens: 2048
+  temperature: ${gfn.temperature}
+  top_p: 0.9
+  n_samples_per_prompt: 1
+
+environment:
+  env_class: synthstats
+  max_turns: 20
+  timeout_s: 30.0
+
+wandb:
+  enabled: false
+  project: synthstats-distributed
+  entity: null
+  name: gfn-training-${now:%Y%m%d_%H%M%S}

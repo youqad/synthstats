@@ -43,6 +43,9 @@ AGENTS.md
 
 .archive/
 _archive/
+.scratch/
+scratch/
+.notes/
 .github/.envrc
 tmp_manual_tests/
 

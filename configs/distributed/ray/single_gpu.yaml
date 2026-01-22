@@ -1,0 +1,19 @@
+# Ray - single GPU for dev/testing
+
+num_nodes: 1
+gpus_per_node: 1
+
+resources:
+  cpu_per_gpu: 4
+  memory_gb: 16
+
+runtime:
+  object_store_memory_fraction: 0.2
+  actor_creation_timeout: 300
+  task_retries: 1
+
+placement:
+  strategy: PACK
+
+address: null
+dashboard_port: null

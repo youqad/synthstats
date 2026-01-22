@@ -1,0 +1,23 @@
+# Ray cluster - multi-node for large models (GLM-4.7, Kimi K2, DeepSeek V3.2)
+#
+# Set up Ray cluster first:
+#   ray start --head --port=6379  # head node
+#   ray start --address=<head>:6379  # workers
+
+num_nodes: 4
+gpus_per_node: 8
+
+resources:
+  cpu_per_gpu: 8
+  memory_gb: 64
+
+runtime:
+  object_store_memory_fraction: 0.3
+  actor_creation_timeout: 1200  # longer for multi-node setup
+  task_retries: 3
+
+placement:
+  strategy: SPREAD  # distribute across nodes
+
+address: auto  # or "ray://<head-ip>:10001"
+dashboard_port: 8265

@@ -1,0 +1,21 @@
+# Ray cluster - single-node, 4 GPUs
+# For multi-node, override num_nodes and set up Ray cluster separately
+
+num_nodes: 1
+gpus_per_node: 4
+
+resources:
+  cpu_per_gpu: 4
+  memory_gb: 32
+
+runtime:
+  object_store_memory_fraction: 0.3
+  actor_creation_timeout: 600
+  task_retries: 3
+
+# PACK=same node, SPREAD=across nodes, STRICT_PACK=error if can't
+placement:
+  strategy: PACK
+
+address: null  # null = start local
+dashboard_port: null
