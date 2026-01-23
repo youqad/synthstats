@@ -228,8 +228,13 @@ class SimpleCollector:
                 total_reward += result["reward"]
                 done = result["done"]
 
-                if not done and result["observations"]:
-                    obs = self._extract_observation(result["observations"])
+                if not done:
+                    # use full chat history for proper multi-turn context
+                    chat_hist = getattr(self.env, "chat_history", None)
+                    if chat_hist:
+                        obs = self._extract_observation(chat_hist)
+                    elif result["observations"]:
+                        obs = self._extract_observation(result["observations"])
 
             # stack EOS logprobs if we got the full set
             eos_logprobs_t: torch.Tensor | None = None
@@ -333,12 +338,9 @@ class SimpleCollector:
 
     @staticmethod
     def _extract_observation(messages: list[dict[str, str]]) -> str:
-        """Extract latest observation from message list."""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                return msg.get("content", "")
-        # fallback: concatenate all messages
-        return "\n".join(msg.get("content", "") for msg in messages)
+        """Serialize full message history as JSON for chat-template-aware policies."""
+        import json
+        return json.dumps(messages)
 
     def _render_action(self, action: dict[str, Any] | Action | str) -> str:
         """Render action into the codec-compatible text format."""
@@ -371,6 +373,10 @@ class SimpleCollector:
     @staticmethod
     def _dict_to_action(action: dict[str, Any]) -> Action | None:
         """Convert a dict action into a core Action when possible."""
+        # bare query dict: {"query": "..."} — common when model skips XML wrapper
+        if "query" in action and len(action) <= 2 and "name" not in action and "tool" not in action:
+            return ToolCall(name="query", input={"query": str(action["query"])}, raw="")
+
         # JSONToolCodec-style
         if "tool" in action or "name" in action:
             name = action.get("tool") or action.get("name")
