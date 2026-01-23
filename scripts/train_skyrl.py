@@ -215,11 +215,16 @@ def create_policy(cfg: DictConfig, device: str) -> Any:
         logger.info("Using MockHFPolicy for testing")
         return MockHFPolicy(device=device)
 
-    logger.info(f"Loading HFPolicy: {model_name}")
+    max_new_tokens = cfg.model.get("max_new_tokens", 300)
+    dtype_str = cfg.model.get("dtype", "bfloat16")
+    logger.info(f"Loading HFPolicy: {model_name} (max_new_tokens={max_new_tokens}, dtype={dtype_str})")
     return HFPolicy(
         model_name=model_name,
         device=device,
+        max_new_tokens=max_new_tokens,
+        temperature=cfg.model.get("temperature", 0.7),
         require_grad_logp=cfg.model.get("require_grad_logp", False),
+        dtype=dtype_str,
     )
 
 
@@ -261,6 +266,7 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
         use_ref_policy=cfg.trainer.get("use_ref_policy", False),
         ref_weight=cfg.trainer.get("ref_weight", 1.0),
         normalize_by_length=cfg.trainer.get("normalize_by_length", False),
+        tb_max_residual=cfg.trainer.get("tb_max_residual", 100.0),
         allow_mismatched_tokenizer=cfg.trainer.get(
             "allow_mismatched_tokenizer", False
         ),
@@ -272,7 +278,12 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
 
     params = [{"params": [trainer.logZ], "lr": cfg.trainer.get("logZ_lr", 0.1)}]
 
-    if policy is not None and hasattr(policy, "parameters"):
+    # only train policy params when explicitly requested (require_grad_logp=True)
+    if (
+        policy is not None
+        and hasattr(policy, "parameters")
+        and cfg.model.get("require_grad_logp", False)
+    ):
         try:
             policy_params = [p for p in policy.parameters() if p.requires_grad]
         except Exception:
@@ -285,6 +296,11 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
                     "lr": cfg.trainer.get("learning_rate", 1e-5),
                 },
             )
+            logger.info(f"Policy params added to optimizer ({len(policy_params)} tensors)")
+        else:
+            logger.info("No trainable policy params found")
+    else:
+        logger.info("Policy frozen — only training logZ")
 
     trainer.optimizer = torch.optim.Adam(params)
 
@@ -368,7 +384,8 @@ def build_judge(cfg: DictConfig) -> Any:
         if judge_type == "likelihood":
             from synthstats.judges.likelihood import LikelihoodJudge
 
-            judges_with_weights.append((LikelihoodJudge(), weight))
+            beta = judge_spec.get("beta", 1.0)
+            judges_with_weights.append((LikelihoodJudge(beta=beta), weight))
         elif judge_type == "formatting":
             from synthstats.judges.formatting import FormattingJudge
 

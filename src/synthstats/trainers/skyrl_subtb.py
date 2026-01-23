@@ -131,8 +131,8 @@ class SkyRLSubTBTrainer:
         ref_log_probs: torch.Tensor | None = batch.get("ref_log_probs")
         eos_logprobs: torch.Tensor | None = batch.get("eos_logprobs")
 
-        # ensure logZ is on correct device
-        if self.logZ.device != torch.device(self.device):
+        # ensure logZ is on correct device (compare by type to avoid cuda:0 != cuda)
+        if self.logZ.device.type != torch.device(self.device).type:
             self.logZ = nn.Parameter(self.logZ.to(self.device))
 
         # validate log_probs shape and prepare for subtb_loss (expects 2D)
@@ -210,6 +210,7 @@ class SkyRLSubTBTrainer:
                 ref_log_probs=ref_log_probs,
                 ref_weight=self.config.ref_weight,
                 normalize_by_length=self.config.normalize_by_length,
+                max_residual=self.config.tb_max_residual,
             )
 
         # compute raw TB loss for logging (before entropy bonus)
