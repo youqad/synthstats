@@ -51,6 +51,9 @@ def estimate_log_partition_vargrad(
     Returns:
         logZ estimate [B] (one per sample; average over responses for same prompt)
     """
+    if reward_temp <= 0:
+        raise ValueError(f"reward_temp must be positive, got {reward_temp}")
+
     # trajectory-level log prob: sum over response positions
     traj_log_prob = (log_probs * response_mask.float()).sum(dim=-1)  # [B]
 
@@ -217,6 +220,8 @@ def compute_flowrl_loss(
         log_ratio = log_ratio.clamp(-5.0, 5.0)
         weights = torch.exp(log_ratio).detach()  # stop gradient on weights
     else:
+        if use_importance_weights and old_log_probs is None:
+            logger.warning("use_importance_weights=True but old_log_probs not provided; using uniform weights")
         weights = torch.ones(B, device=log_probs.device, dtype=log_probs.dtype)
 
     loss = (weights * squared_residual).mean()
@@ -262,6 +267,9 @@ def compute_vargrad_tb_loss(
     Returns:
         (loss, metrics_dict)
     """
+    if reward_temp <= 0:
+        raise ValueError(f"reward_temp must be positive, got {reward_temp}")
+
     B, T = log_probs.shape
     mask_f = response_mask.float()
     response_lengths = mask_f.sum(dim=-1).clamp(min=1.0)
@@ -316,10 +324,10 @@ def compute_vargrad_tb_loss(
     # (VarGrad: gradient comes from the TB loss, not from logZ estimation)
     logZ_detached = logZ.detach()
 
-    # scaled rewards
-    scaled_rewards = log_rewards * reward_temp if reward_temp != 1.0 else log_rewards
+    # scaled rewards (TBA convention: divide by temperature β)
+    scaled_rewards = log_rewards / reward_temp if reward_temp != 1.0 else log_rewards
 
-    # TB residual
+    # TB residual: logZ + log π_θ/|y| - r/β - log π_ref/|y|
     residual = logZ_detached + traj_log_prob_normed - scaled_rewards - ref_contribution_normed
     residual = residual.clamp(-max_residual, max_residual)
 

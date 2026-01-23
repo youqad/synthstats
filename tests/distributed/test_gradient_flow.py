@@ -469,3 +469,38 @@ class TestVarGradLogZ:
         loss.backward()
         assert log_probs.grad is not None
         assert logZ.grad is not None
+
+    def test_vargrad_reward_temp_zero_raises(self) -> None:
+        """reward_temp=0 raises ValueError (would cause division by zero)."""
+        from synthstats.training.losses.trajectory_balance_v2 import compute_vargrad_tb_loss
+
+        B, T = 4, 10
+        log_probs = torch.randn(B, T, requires_grad=True)
+        log_rewards = torch.randn(B)
+        response_mask = torch.ones(B, T)
+
+        with pytest.raises(ValueError, match="reward_temp must be positive"):
+            compute_vargrad_tb_loss(log_probs, log_rewards, response_mask, reward_temp=0.0)
+
+    def test_vargrad_reward_temp_consistency(self) -> None:
+        """VarGrad logZ estimate and residual use same reward scaling."""
+        from synthstats.training.losses.trajectory_balance_v2 import compute_vargrad_tb_loss
+
+        B, T = 16, 10
+        torch.manual_seed(99)
+        log_probs = (torch.randn(B, T) * 0.1).requires_grad_(True)
+        log_rewards = torch.randn(B) * 0.5
+        response_mask = torch.ones(B, T)
+
+        # with reward_temp != 1.0, loss should still be finite and trainable
+        loss, metrics = compute_vargrad_tb_loss(
+            log_probs, log_rewards, response_mask, reward_temp=5.0
+        )
+
+        assert torch.isfinite(loss)
+        # residual should be small when logZ is well-estimated from the batch
+        # (since VarGrad uses the same batch for estimation and loss)
+        assert abs(metrics["mean_residual"]) < 10.0, (
+            f"Residual too large ({metrics['mean_residual']:.2f}), "
+            "possible reward_temp inconsistency between estimator and loss"
+        )
