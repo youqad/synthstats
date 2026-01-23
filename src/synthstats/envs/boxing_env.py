@@ -206,8 +206,8 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
                 "metadata": {"parse_error": str(e)},
             }
 
-        # execute tool calls
-        if isinstance(parsed_action, ToolCall):
+        # execute tool calls (skip "query" — handled by task.step)
+        if isinstance(parsed_action, ToolCall) and parsed_action.name != "query":
             result = self._execute_tool(parsed_action)
             tool_msg = {"role": "tool", "content": result.output}
             self.chat_history.append(tool_msg)
@@ -272,8 +272,77 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
                 error=str(e),
             )
 
+    def _execute_program_for_elpd(self, code: str) -> float | None:
+        """Execute PyMC program in subprocess and compute ELPD-LOO."""
+        import re as _re
+        import subprocess
+        import sys
+
+        # reduce sample count for training speed
+        modified = _re.sub(
+            r"pm\.sample\((\d+)",
+            "pm.sample(200, chains=2, cores=1",
+            code,
+        )
+
+        elpd_snippet = """
+# --- synthstats: compute ELPD-LOO ---
+import arviz as _az
+try:
+    if not hasattr(idata, 'log_likelihood'):
+        import pymc as _pm
+        _pm.compute_log_likelihood(idata, model=model)
+    _loo = _az.loo(idata, pointwise=True)
+    print(f"__ELPD__:{_loo.elpd_loo}")
+except Exception as _e:
+    print(f"__ELPD_ERR__:{_e}")
+"""
+
+        full_code = modified + "\n" + elpd_snippet
+
+        try:
+            import os as _os
+            sub_env = _os.environ.copy()
+            sub_env["PYTENSOR_FLAGS"] = "device=cpu,cxx="
+
+            result = subprocess.run(
+                [sys.executable, "-"],
+                input=full_code,
+                capture_output=True,
+                text=True,
+                timeout=180.0,
+                cwd="/tmp",
+                env=sub_env,
+            )
+
+            for line in result.stdout.split("\n"):
+                if line.startswith("__ELPD__:"):
+                    try:
+                        return float(line.split(":", 1)[1])
+                    except ValueError:
+                        pass
+                elif line.startswith("__ELPD_ERR__:"):
+                    logger.warning(f"ELPD error: {line}")
+
+            if result.returncode != 0:
+                logger.warning(f"Program failed: {result.stderr[:300]}")
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Program timed out (120s)")
+        except Exception as e:
+            logger.warning(f"Program exec error: {e}")
+
+        return None
+
     def _compute_final_reward(self) -> float:
         """Compute final reward using Judge if available."""
+        # execute submitted program to compute ELPD
+        if "program" in self._artifacts and "elpd" not in self._artifacts:
+            elpd = self._execute_program_for_elpd(self._artifacts["program"])
+            if elpd is not None:
+                self._artifacts["elpd"] = elpd
+                logger.info(f"Program ELPD-LOO: {elpd:.4f}")
+
         if self.judge is None:
             # fall back to artifact reward
             reward = self._artifacts.get("reward", 0.0)
