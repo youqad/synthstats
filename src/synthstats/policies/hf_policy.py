@@ -264,6 +264,7 @@ class HFPolicy:
         lora_config: dict[str, Any] | None = None,
         use_4bit: bool = False,
         gradient_checkpointing: bool = False,
+        dtype: str = "float16",
     ) -> None:
         self.device = device
         self.max_new_tokens = max_new_tokens
@@ -308,7 +309,8 @@ class HFPolicy:
                 "torch_dtype": torch_dtype,
             }
         else:
-            torch_dtype = torch.float16 if device != "cpu" else torch.float32
+            dtype_map = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
+            torch_dtype = dtype_map.get(dtype, torch.bfloat16) if device != "cpu" else torch.float32
             load_kwargs = {"torch_dtype": torch_dtype}
 
         self.model: Any = AutoModelForCausalLM.from_pretrained(model_name, **load_kwargs)
@@ -446,19 +448,62 @@ class HFPolicy:
         return self._score_generated(full_ids, prompt_len=len(prompt_ids))
 
     def _build_prompt(self, obs: str) -> str:
-        """Build prompt from observation."""
-        return (
-            "You are an agent that responds to observations.\n"
-            f"Observation: {obs}\n"
-            "Respond with a JSON action: "
-        )
+        """Build prompt from observation.
 
-    def _parse_action(self, text: str) -> dict[str, Any]:
-        """Parse action from generated text."""
+        If obs is a JSON-serialized list of message dicts (from SimpleCollector),
+        uses the tokenizer chat template for proper formatting. Otherwise falls
+        back to a simple wrapper.
+        """
         import json
 
+        # detect structured messages from SimpleCollector
+        if obs.startswith("["):
+            try:
+                messages = json.loads(obs)
+                if isinstance(messages, list) and messages and "role" in messages[0]:
+                    if hasattr(self.tokenizer, "apply_chat_template"):
+                        return self.tokenizer.apply_chat_template(
+                            messages,
+                            tokenize=False,
+                            add_generation_prompt=True,
+                        )
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+        # fallback for plain text observations
+        return f"User: {obs}\nAssistant:"
+
+    def _parse_action(self, text: str) -> dict[str, Any]:
+        """Parse action from generated text.
+
+        Handles:
+        - XML tool calls: <tool_call>{"name": ..., "input": ...}</tool_call>
+        - XML programs: <submit_program>code</submit_program>
+        - Raw JSON: {"name": ..., "input": ...}
+        - Fallback: treat as answer text
+        """
+        import json
+        import re
+
         text = text.strip()
-        # try to parse as JSON
+
+        # strip thinking blocks (Qwen3 generates <think>...</think> before acting)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+        # handle <tool_call>JSON</tool_call>
+        tc_match = re.search(r"<tool_call>(.*?)</tool_call>", text, re.DOTALL)
+        if tc_match:
+            try:
+                return json.loads(tc_match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
+        # handle <submit_program>code</submit_program>
+        sp_match = re.search(r"<submit_program>(.*?)</submit_program>", text, re.DOTALL)
+        if sp_match:
+            return {"type": "submit_program", "payload": sp_match.group(1).strip()}
+
+        # try raw JSON
         try:
             if "{" in text:
                 start = text.index("{")

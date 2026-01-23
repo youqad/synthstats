@@ -86,8 +86,34 @@ class BoxingTask:
     def system_prompt(self) -> str:
         """Return the system prompt for this task."""
         return (
-            f"You are a scientist discovering a model for {self.env_name}. "
-            f"Query the environment to collect data, then submit a PyMC program."
+            f"You are a scientist discovering a statistical model for {self.env_name}.\n"
+            "\n"
+            "## Actions\n"
+            "\n"
+            "1. Query the environment to collect data (vary the age each time):\n"
+            '<tool_call>{"name": "query", "input": {"query": "age=3"}}</tool_call>\n'
+            '<tool_call>{"name": "query", "input": {"query": "age=15"}}</tool_call>\n'
+            '<tool_call>{"name": "query", "input": {"query": "age=25"}}</tool_call>\n'
+            "\n"
+            "2. When you have enough data, submit a PyMC program:\n"
+            "<submit_program>\n"
+            "import pymc as pm\n"
+            "import numpy as np\n"
+            "\n"
+            "ages = np.array([...])  # your observed ages\n"
+            "lengths = np.array([...])  # your observed lengths\n"
+            "\n"
+            "with pm.Model() as model:\n"
+            "    alpha = pm.Normal(\"alpha\", mu=3, sigma=1)\n"
+            "    beta = pm.Normal(\"beta\", mu=1, sigma=1)\n"
+            "    lam = pm.Beta(\"lam\", alpha=2, beta=2)\n"
+            "    sigma = pm.HalfNormal(\"sigma\", sigma=1)\n"
+            "    mu = alpha - beta * lam**ages\n"
+            "    obs = pm.Normal(\"obs\", mu=mu, sigma=sigma, observed=lengths)\n"
+            "    idata = pm.sample(1000, return_inferencedata=True)\n"
+            "</submit_program>\n"
+            "\n"
+            "Collect 2-3 data points at DIFFERENT ages, then submit your PyMC model immediately."
         )
 
     def observe(self, state: BoxingState) -> list[Message]:
