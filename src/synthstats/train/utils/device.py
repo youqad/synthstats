@@ -27,16 +27,16 @@ def get_device_info() -> dict[str, Any]:
     Returns:
         Dict with device availability and properties
     """
-    info = {
+    info: dict[str, Any] = {
         "cuda_available": torch.cuda.is_available(),
         "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
     }
 
     if torch.cuda.is_available():
-        info["cuda_devices"] = []
+        cuda_devices: list[dict[str, Any]] = []
         for i in range(torch.cuda.device_count()):
             props = torch.cuda.get_device_properties(i)
-            info["cuda_devices"].append(
+            cuda_devices.append(
                 {
                     "name": props.name,
                     "total_memory_gb": props.total_memory / (1024**3),
@@ -44,5 +44,6 @@ def get_device_info() -> dict[str, Any]:
                     "minor": props.minor,
                 }
             )
+        info["cuda_devices"] = cuda_devices
 
     return info

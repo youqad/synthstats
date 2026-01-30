@@ -132,6 +132,7 @@ class SubTBObjective(nn.Module):
             )
 
         if use_modified_subtb:
+            assert eos_logprobs is not None  # guaranteed by use_modified_subtb check
             loss_tensor = self._compute_modified_subtb(
                 log_probs_2d, mask_2d, log_reward, eos_logprobs
             )
@@ -295,7 +296,7 @@ class SubTBObjective(nn.Module):
         ent_per_traj = ent_masked.sum(dim=1) / denom
         return ent_per_traj.mean()
 
-    def state_dict(self) -> dict[str, Any]:
+    def state_dict(self) -> dict[str, Any]:  # type: ignore[override]
         """Serialize objective state."""
         return {
             "logZ": self.logZ.item(),
@@ -312,7 +313,7 @@ class SubTBObjective(nn.Module):
             },
         }
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
+    def load_state_dict(self, state: dict[str, Any]) -> None:  # type: ignore[override]
         """Restore objective state."""
         with torch.no_grad():
             self.logZ.fill_(state["logZ"])

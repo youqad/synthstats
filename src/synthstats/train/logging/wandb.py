@@ -49,7 +49,8 @@ class WandbLogger:
                 tags=self.tags,
                 config=self.config,
             )
-            logger.info(f"Initialized W&B run: {self._run.name}")
+            run_name = self._run.name if self._run else "unknown"
+            logger.info(f"Initialized W&B run: {run_name}")
         except ImportError:
             logger.warning("wandb not installed, logging disabled")
         except Exception as e:

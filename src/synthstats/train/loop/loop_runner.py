@@ -188,12 +188,14 @@ class LoopRunner:
         replay_trajectories = []
         if num_replay > 0:
             if has_gfn_buffer:
+                assert self._gfn_replay_buffer is not None
                 replay_trajectories = self._gfn_replay_buffer.sample(
                     batch_size=num_replay,
                     collector=self.collector,
                     temperature=self.config.temperature,
                 )
             elif has_simple_buffer:
+                assert self._replay_buffer is not None
                 replay_trajectories = self._replay_buffer.sample(num_replay)
 
         trajectories = fresh_trajectories + replay_trajectories

@@ -251,10 +251,10 @@ class LocalRunner:
         if "_target_" in logging_cfg:
             from hydra.utils import instantiate
 
-            # check if WandbLogger - inject training config
+            # check if WandbLogger - inject training config if not already present
             target = logging_cfg.get("_target_", "")
-            if "WandbLogger" in target:
-                return instantiate(
+            if "WandbLogger" in target and "config" not in logging_cfg:
+                return instantiate(  # type: ignore[misc]
                     logging_cfg,
                     config=OmegaConf.to_container(self.cfg, resolve=True),
                 )

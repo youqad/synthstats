@@ -164,6 +164,7 @@ class SkyRLSubTBTrainer:
             )
 
         if use_modified_subtb:
+            assert eos_logprobs is not None  # guaranteed by use_modified_subtb check
             loss_config = {
                 "logZ": self.logZ,
                 "subtb_lambda": self.config.subtb_lambda,
