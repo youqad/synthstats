@@ -25,9 +25,7 @@ class FormattingJudge:
             "os.system",
         ]
 
-    def score(
-        self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-    ) -> Reward:
+    def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
         """Check program validity.
 
         Args:

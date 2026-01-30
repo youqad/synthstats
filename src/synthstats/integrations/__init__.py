@@ -1,16 +1,14 @@
 """External framework integrations.
 
-The SkyRL integration module has been archived (January 2026) in favor of
-native SkyRL integration using @register_policy_loss.
+Submodules:
+- skyrl: SkyRL/Ray distributed training (registry, adapters)
+- tinker: Tinker API training backend (policy, trainer, adapters)
 
-See:
-- synthstats.training.losses.trajectory_balance for TB loss registration
-- synthstats.training.tb_trainer for TBTrainer
-- synthstats.envs.boxing_env for native BaseTextEnv
-
-Archived code: _archive/skyrl_integration_2026-01/
+Usage:
+    from synthstats.integrations.skyrl import sync_registries_if_ray, register_losses
+    from synthstats.integrations.tinker import TinkerPolicy, TinkerTrainer
 """
 
-from synthstats.integrations import tinker_adapter
+from synthstats.integrations import skyrl, tinker
 
-__all__ = ["tinker_adapter"]
+__all__ = ["skyrl", "tinker"]

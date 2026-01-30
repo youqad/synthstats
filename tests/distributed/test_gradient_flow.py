@@ -10,10 +10,11 @@ If this test fails, the policy model is NOT learning.
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
 import torch.nn as nn
-from unittest.mock import MagicMock
 
 from synthstats.distributed.gfn_trainer import GFlowNetTrainer, GFNConfig
 from synthstats.distributed.scoring import build_response_mask
@@ -31,7 +32,9 @@ class MinimalPolicyModel(nn.Module):
         self.embedding = nn.Embedding(vocab_size, hidden_dim)
         self.head = nn.Linear(hidden_dim, vocab_size)
 
-    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None) -> MagicMock:
+    def forward(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor | None = None
+    ) -> MagicMock:
         """Returns object with .logits attribute (HuggingFace convention)."""
         h = self.embedding(input_ids)
         logits = self.head(h)
@@ -138,14 +141,16 @@ class TestGradientFlow:
         batch = trainer._rescore_batch_with_gradients(batch)
 
         # compute TB loss manually
-        from synthstats.training.losses.trajectory_balance import compute_trajectory_balance_loss
         from synthstats.distributed.gfn_trainer import ConfigProxy
+        from synthstats.training.losses.trajectory_balance import compute_trajectory_balance_loss
 
-        config = ConfigProxy({
-            "logZ": trainer.logZ.item(),
-            "_logZ_tensor": trainer.logZ,
-            "tb_max_residual": 100.0,
-        })
+        config = ConfigProxy(
+            {
+                "logZ": trainer.logZ.item(),
+                "_logZ_tensor": trainer.logZ,
+                "tb_max_residual": 100.0,
+            }
+        )
 
         loss, _ = compute_trajectory_balance_loss(
             log_probs=batch["log_probs"],
@@ -178,14 +183,16 @@ class TestGradientFlow:
         trainer.optimizer.zero_grad(set_to_none=True)
         batch = trainer._rescore_batch_with_gradients(batch)
 
-        from synthstats.training.losses.trajectory_balance import compute_trajectory_balance_loss
         from synthstats.distributed.gfn_trainer import ConfigProxy
+        from synthstats.training.losses.trajectory_balance import compute_trajectory_balance_loss
 
-        config = ConfigProxy({
-            "logZ": trainer.logZ.item(),
-            "_logZ_tensor": trainer.logZ,
-            "tb_max_residual": 100.0,
-        })
+        config = ConfigProxy(
+            {
+                "logZ": trainer.logZ.item(),
+                "_logZ_tensor": trainer.logZ,
+                "tb_max_residual": 100.0,
+            }
+        )
 
         loss, _ = compute_trajectory_balance_loss(
             log_probs=batch["log_probs"],
@@ -205,15 +212,14 @@ class TestGradientFlow:
 
         # capture initial params
         initial_params = {
-            name: p.clone().detach()
-            for name, p in trainer.policy_model.named_parameters()
+            name: p.clone().detach() for name, p in trainer.policy_model.named_parameters()
         }
         initial_logZ = trainer.logZ.clone().detach()
 
         # run full training step
         batch = _create_dummy_batch()
         batch["logZ"] = trainer.logZ
-        metrics = trainer.train_critic_and_policy(batch)
+        trainer.train_critic_and_policy(batch)
 
         # verify params changed
         params_changed = False
@@ -249,8 +255,11 @@ class TestGradientFlow:
         batch_template = _create_dummy_batch(batch_size=8, seq_len=12)
 
         losses = []
-        for step in range(20):
-            batch = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in batch_template.items()}
+        for _step in range(20):
+            batch = {
+                k: v.clone() if isinstance(v, torch.Tensor) else v
+                for k, v in batch_template.items()
+            }
             batch["logZ"] = trainer.logZ
             metrics = trainer.train_critic_and_policy(batch)
             losses.append(metrics["loss"])
@@ -280,7 +289,7 @@ class TestGradientFlow:
         batch["eos_logprobs"] = torch.randn(4, 9).detach()
 
         trainer.optimizer.zero_grad(set_to_none=True)
-        metrics = trainer.train_critic_and_policy(batch)
+        trainer.train_critic_and_policy(batch)
 
         # model params should NOT have gradients (proving the bug)
         has_model_grad = False
@@ -311,22 +320,19 @@ class TestGradientFlow:
         )
 
         initial_params = {
-            name: p.clone().detach()
-            for name, p in trainer.policy_model.named_parameters()
+            name: p.clone().detach() for name, p in trainer.policy_model.named_parameters()
         }
 
         batch = _create_dummy_batch()
         batch["logZ"] = trainer.logZ
-        metrics = trainer.train_critic_and_policy(batch)
+        trainer.train_critic_and_policy(batch)
 
         params_changed = any(
             not torch.allclose(initial_params[name], p.data, atol=1e-7)
             for name, p in trainer.policy_model.named_parameters()
         )
 
-        assert params_changed, (
-            "Policy model unchanged with SubTB loss - gradient not flowing!"
-        )
+        assert params_changed, "Policy model unchanged with SubTB loss - gradient not flowing!"
 
     def test_length_normalization_changes_loss(self) -> None:
         """Length normalization should produce different loss values."""
@@ -356,11 +362,11 @@ class TestGradientFlow:
 
 
 class TestVarGradLogZ:
-    """Tests for the VarGrad logZ estimator from trajectory_balance_v2."""
+    """Tests for the VarGrad logZ estimator from trajectory_balance."""
 
     def test_vargrad_estimate_finite(self) -> None:
         """VarGrad logZ estimate should be finite."""
-        from synthstats.training.losses.trajectory_balance_v2 import estimate_log_partition_vargrad
+        from synthstats.training.losses.trajectory_balance import estimate_log_partition_vargrad
 
         B, T = 8, 10
         log_probs = torch.randn(B, T) * 0.1
@@ -373,7 +379,7 @@ class TestVarGradLogZ:
 
     def test_vargrad_with_ref_model(self) -> None:
         """VarGrad works with reference model log probs."""
-        from synthstats.training.losses.trajectory_balance_v2 import estimate_log_partition_vargrad
+        from synthstats.training.losses.trajectory_balance import estimate_log_partition_vargrad
 
         B, T = 8, 10
         log_probs = torch.randn(B, T) * 0.1
@@ -389,16 +395,14 @@ class TestVarGradLogZ:
 
     def test_vargrad_tb_loss_no_learned_logz(self) -> None:
         """VarGrad TB loss works without a learned logZ parameter."""
-        from synthstats.training.losses.trajectory_balance_v2 import compute_vargrad_tb_loss
+        from synthstats.training.losses.trajectory_balance import compute_vargrad_tb_loss
 
         B, T = 8, 10
         log_probs = (torch.randn(B, T) * 0.1).requires_grad_(True)
         log_rewards = torch.randn(B) * 0.5 + 1.0
         response_mask = torch.ones(B, T)
 
-        loss, metrics = compute_vargrad_tb_loss(
-            log_probs, log_rewards, response_mask
-        )
+        loss, metrics = compute_vargrad_tb_loss(log_probs, log_rewards, response_mask)
 
         assert torch.isfinite(loss)
         assert loss.requires_grad
@@ -410,7 +414,7 @@ class TestVarGradLogZ:
 
     def test_vargrad_tb_per_prompt_grouping(self) -> None:
         """Per-prompt grouping produces different logZ per prompt."""
-        from synthstats.training.losses.trajectory_balance_v2 import compute_vargrad_tb_loss
+        from synthstats.training.losses.trajectory_balance import compute_vargrad_tb_loss
 
         B, T = 8, 10
         log_probs = torch.randn(B, T, requires_grad=True) * 0.1
@@ -428,7 +432,7 @@ class TestVarGradLogZ:
 
     def test_flowrl_loss_with_importance_weights(self) -> None:
         """FlowRL loss applies importance weights correctly."""
-        from synthstats.training.losses.trajectory_balance_v2 import compute_flowrl_loss
+        from synthstats.training.losses.trajectory_balance import compute_flowrl_loss
 
         B, T = 4, 10
         log_probs = (torch.randn(B, T) * 0.1).requires_grad_(True)
@@ -438,7 +442,10 @@ class TestVarGradLogZ:
         logZ = torch.tensor(0.0)
 
         loss, metrics = compute_flowrl_loss(
-            log_probs, log_rewards, response_mask, logZ,
+            log_probs,
+            log_rewards,
+            response_mask,
+            logZ,
             old_log_probs=old_log_probs,
             use_importance_weights=True,
         )
@@ -450,7 +457,7 @@ class TestVarGradLogZ:
 
     def test_tb_loss_with_kl_reference(self) -> None:
         """KL-regularized TB loss uses reference model."""
-        from synthstats.training.losses.trajectory_balance_v2 import compute_tb_loss_with_kl
+        from synthstats.training.losses.trajectory_balance import compute_tb_loss_with_kl
 
         B, T = 4, 10
         log_probs = (torch.randn(B, T) * 0.1).requires_grad_(True)
@@ -460,7 +467,10 @@ class TestVarGradLogZ:
         logZ = torch.tensor(0.0, requires_grad=True)
 
         loss, metrics = compute_tb_loss_with_kl(
-            log_probs, log_rewards, response_mask, logZ,
+            log_probs,
+            log_rewards,
+            response_mask,
+            logZ,
             ref_log_probs=ref_log_probs,
         )
 
@@ -472,7 +482,7 @@ class TestVarGradLogZ:
 
     def test_vargrad_reward_temp_zero_raises(self) -> None:
         """reward_temp=0 raises ValueError (would cause division by zero)."""
-        from synthstats.training.losses.trajectory_balance_v2 import compute_vargrad_tb_loss
+        from synthstats.training.losses.trajectory_balance import compute_vargrad_tb_loss
 
         B, T = 4, 10
         log_probs = torch.randn(B, T, requires_grad=True)
@@ -484,7 +494,7 @@ class TestVarGradLogZ:
 
     def test_vargrad_reward_temp_consistency(self) -> None:
         """VarGrad logZ estimate and residual use same reward scaling."""
-        from synthstats.training.losses.trajectory_balance_v2 import compute_vargrad_tb_loss
+        from synthstats.training.losses.trajectory_balance import compute_vargrad_tb_loss
 
         B, T = 16, 10
         torch.manual_seed(99)

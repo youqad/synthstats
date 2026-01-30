@@ -22,9 +22,7 @@ class Judge(Protocol):
     Judges are composed via CompositeJudge.
     """
 
-    def score(
-        self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-    ) -> Reward:
+    def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
         """Compute reward for a trajectory.
 
         Args:

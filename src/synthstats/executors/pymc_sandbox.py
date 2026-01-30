@@ -14,122 +14,166 @@ from synthstats.core.executor import ToolResult
 from synthstats.core.types import ToolCall
 
 # modules that could enable file system, network, or shell access
-BLOCKED_MODULES = frozenset({
-    "os",
-    "sys",
-    "subprocess",
-    "socket",
-    "shutil",
-    "pathlib",
-    "ctypes",
-    "multiprocessing",
-    "threading",
-    "signal",
-    "pty",
-    "tty",
-    "termios",
-    "fcntl",
-    "resource",
-    "syslog",
-    "platform",
-    "webbrowser",
-    "http",
-    "urllib",
-    "ftplib",
-    "smtplib",
-    "poplib",
-    "imaplib",
-    "nntplib",
-    "telnetlib",
-    "xmlrpc",
-    "asyncio",
-    "concurrent",
-    # dynamic import modules (gadget chain enablers)
-    "importlib",
-    "pkgutil",
-    "types",
-    "inspect",
-    # I/O modules that bypass open()
-    "io",
-    "builtins",
-    "code",
-    "codeop",
-    "runpy",
-    # network and file bypass modules
-    "requests",
-    "tempfile",
-    # memory introspection
-    "gc",
-    # persistence via exit hooks
-    "atexit",
-    # memory mapping bypass
-    "mmap",
-    # file creation bypasses
-    "sqlite3",
-    "logging",
-    # crypto (reduces attack surface)
-    "ssl",
-    # serialization (RCE via __reduce__, defense in depth)
-    "pickle",
-    "_pickle",
-})
+BLOCKED_MODULES = frozenset(
+    {
+        "os",
+        "sys",
+        "subprocess",
+        "socket",
+        "shutil",
+        "pathlib",
+        "ctypes",
+        "multiprocessing",
+        "threading",
+        "signal",
+        "pty",
+        "tty",
+        "termios",
+        "fcntl",
+        "resource",
+        "syslog",
+        "platform",
+        "webbrowser",
+        "http",
+        "urllib",
+        "ftplib",
+        "smtplib",
+        "poplib",
+        "imaplib",
+        "nntplib",
+        "telnetlib",
+        "xmlrpc",
+        "asyncio",
+        "concurrent",
+        # dynamic import modules (gadget chain enablers)
+        "importlib",
+        "pkgutil",
+        "types",
+        "inspect",
+        # I/O modules that bypass open()
+        "io",
+        "builtins",
+        "code",
+        "codeop",
+        "runpy",
+        # network and file bypass modules
+        "requests",
+        "tempfile",
+        # memory introspection
+        "gc",
+        # persistence via exit hooks
+        "atexit",
+        # memory mapping bypass
+        "mmap",
+        # file creation bypasses
+        "sqlite3",
+        "logging",
+        # crypto (reduces attack surface)
+        "ssl",
+        # serialization (RCE via __reduce__, defense in depth)
+        "pickle",
+        "_pickle",
+    }
+)
 
 # built-in functions that allow code execution or file access
-BLOCKED_FUNCTIONS = frozenset({
-    "open",
-    "exec",
-    "eval",
-    "compile",
-    "__import__",
-    "globals",
-    "locals",
-    "vars",
-    "dir",
-    "getattr",
-    "setattr",
-    "delattr",
-    "hasattr",
-    "type",
-    "input",
-    "breakpoint",
-})
+BLOCKED_FUNCTIONS = frozenset(
+    {
+        "open",
+        "exec",
+        "eval",
+        "compile",
+        "__import__",
+        "globals",
+        "locals",
+        "vars",
+        "dir",
+        "getattr",
+        "setattr",
+        "delattr",
+        "hasattr",
+        "type",
+        "input",
+        "breakpoint",
+    }
+)
 
 # dangerous methods on allowed modules (pandas, numpy, scipy, torch)
 # that bypass open() by implementing their own file I/O
-BLOCKED_METHODS = frozenset({
-    # pandas file I/O - read
-    "read_csv", "read_pickle", "read_json", "read_excel", "read_parquet",
-    "read_html", "read_xml", "read_sql", "read_table", "read_fwf",
-    "read_stata", "read_sas", "read_spss", "read_feather", "read_orc",
-    # pandas file I/O - write
-    "to_csv", "to_pickle", "to_json", "to_excel", "to_parquet",
-    "to_html", "to_sql", "to_stata", "to_feather",
-    # numpy file I/O
-    "load", "loadtxt", "genfromtxt", "fromfile",
-    "save", "savetxt", "savez", "savez_compressed", "tofile",
-    # scipy file I/O
-    "loadmat", "savemat", "wavread", "wavwrite",
-    # torch file I/O (pickle-based, RCE risk)
-    "load_state_dict", "save_state_dict",
-    # ctypes/shared library loading
-    "load_library", "CDLL", "WinDLL", "PyDLL", "OleDLL",
-    # pickle operations (RCE)
-    "loads", "dumps", "dump",
-})
+BLOCKED_METHODS = frozenset(
+    {
+        # pandas file I/O - read
+        "read_csv",
+        "read_pickle",
+        "read_json",
+        "read_excel",
+        "read_parquet",
+        "read_html",
+        "read_xml",
+        "read_sql",
+        "read_table",
+        "read_fwf",
+        "read_stata",
+        "read_sas",
+        "read_spss",
+        "read_feather",
+        "read_orc",
+        # pandas file I/O - write
+        "to_csv",
+        "to_pickle",
+        "to_json",
+        "to_excel",
+        "to_parquet",
+        "to_html",
+        "to_sql",
+        "to_stata",
+        "to_feather",
+        # numpy file I/O
+        "load",
+        "loadtxt",
+        "genfromtxt",
+        "fromfile",
+        "save",
+        "savetxt",
+        "savez",
+        "savez_compressed",
+        "tofile",
+        # scipy file I/O
+        "loadmat",
+        "savemat",
+        "wavread",
+        "wavwrite",
+        # torch file I/O (pickle-based, RCE risk)
+        "load_state_dict",
+        "save_state_dict",
+        # ctypes/shared library loading
+        "load_library",
+        "CDLL",
+        "WinDLL",
+        "PyDLL",
+        "OleDLL",
+        # pickle operations (RCE)
+        "loads",
+        "dumps",
+        "dump",
+    }
+)
 
 # environment variables safe to pass to sandboxed subprocess
 # explicitly allowlist to prevent leaking API keys, credentials, etc.
 # NOTE: PYTHONPATH intentionally excluded - could allow module injection
 # from shared directories on multi-tenant systems
-SAFE_ENV_VARS = frozenset({
-    "PATH",
-    "HOME",
-    "TMPDIR",
-    "TEMP",
-    "TMP",
-    "LANG",
-    "LC_ALL",
-})
+SAFE_ENV_VARS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "LANG",
+        "LC_ALL",
+    }
+)
 
 
 class ASTSecurityChecker(ast.NodeVisitor):
@@ -140,10 +184,24 @@ class ASTSecurityChecker(ast.NodeVisitor):
     """
 
     # allowlisted module prefixes for attribute access
-    ALLOWED_MODULES = frozenset({
-        "pm", "pymc", "np", "numpy", "math", "scipy", "arviz", "az",
-        "xarray", "pandas", "pd", "jax", "numpyro", "torch",
-    })
+    ALLOWED_MODULES = frozenset(
+        {
+            "pm",
+            "pymc",
+            "np",
+            "numpy",
+            "math",
+            "scipy",
+            "arviz",
+            "az",
+            "xarray",
+            "pandas",
+            "pd",
+            "jax",
+            "numpyro",
+            "torch",
+        }
+    )
 
     def __init__(self):
         self.violations: list[str] = []
@@ -183,9 +241,7 @@ class ASTSecurityChecker(ast.NodeVisitor):
         # CRITICAL: block calls on complex expressions (gadget chains)
         # e.g., ().__class__.__base__.__subclasses__()[0]()
         elif isinstance(node.func, ast.Subscript):
-            self.violations.append(
-                "Blocked: calls on subscript expressions are not allowed"
-            )
+            self.violations.append("Blocked: calls on subscript expressions are not allowed")
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
@@ -194,9 +250,7 @@ class ASTSecurityChecker(ast.NodeVisitor):
             # only allow __name__ and __doc__ - needed for introspection
             # __init__ and __call__ are NOT needed for modeling and increase attack surface
             if node.attr not in {"__name__", "__doc__"}:
-                self.violations.append(
-                    f"Blocked dunder access: {node.attr}"
-                )
+                self.violations.append(f"Blocked dunder access: {node.attr}")
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:

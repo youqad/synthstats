@@ -118,9 +118,7 @@ class MockHFPolicy:
         # SubTB: track last EOS logprob for SimpleCollector
         self._last_eos_logprob_final: float | None = None
 
-    def __call__(
-        self, obs: str, temperature: float | None = None
-    ) -> PolicyOutput:
+    def __call__(self, obs: str, temperature: float | None = None) -> PolicyOutput:
         """Generate an action from observation.
 
         Args:
@@ -148,9 +146,7 @@ class MockHFPolicy:
 
         return action, logp, ent
 
-    def score_action(
-        self, obs: str, action: dict[str, Any]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def score_action(self, obs: str, action: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
         """Score an action under the current policy.
 
         Args:
@@ -162,6 +158,8 @@ class MockHFPolicy:
         """
         logp = torch.tensor(-0.5, device=self.device, requires_grad=True)
         ent = torch.tensor(0.1, device=self.device, requires_grad=True)
+        # match __call__ behavior: set EOS logprob for replay consistency
+        self._last_eos_logprob_final = self._fixed_eos_logprobs[-1]
         return logp, ent
 
     def parameters(self) -> Iterator[nn.Parameter]:
@@ -280,8 +278,7 @@ class HFPolicy:
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as e:
             raise ImportError(
-                "transformers is required for HFPolicy. "
-                "Install with: pip install transformers"
+                "transformers is required for HFPolicy. Install with: pip install transformers"
             ) from e
 
         self.tokenizer: Any = AutoTokenizer.from_pretrained(model_name)
@@ -290,6 +287,7 @@ class HFPolicy:
         if use_4bit:
             try:
                 from transformers import BitsAndBytesConfig
+
                 quantization_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_use_double_quant=True,
@@ -309,7 +307,11 @@ class HFPolicy:
                 "torch_dtype": torch_dtype,
             }
         else:
-            dtype_map = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
+            dtype_map = {
+                "bfloat16": torch.bfloat16,
+                "float16": torch.float16,
+                "float32": torch.float32,
+            }
             torch_dtype = dtype_map.get(dtype, torch.bfloat16) if device != "cpu" else torch.float32
             load_kwargs = {"torch_dtype": torch_dtype}
 
@@ -369,9 +371,7 @@ class HFPolicy:
         self.model.print_trainable_parameters()
         logger.info("LoRA adapter applied")
 
-    def __call__(
-        self, obs: str, temperature: float | None = None
-    ) -> PolicyOutput:
+    def __call__(self, obs: str, temperature: float | None = None) -> PolicyOutput:
         """Generate an action from observation.
 
         Args:
@@ -426,9 +426,7 @@ class HFPolicy:
             return action, logp, ent
         return action, float(logp.item()), float(ent.item())
 
-    def score_action(
-        self, obs: str, action: dict[str, Any]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def score_action(self, obs: str, action: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
         """Score an action under the current policy.
 
         Used for off-policy training with replay buffers.
@@ -445,7 +443,20 @@ class HFPolicy:
         action_text = self._render_action(action)
         action_ids = self.tokenizer(action_text, add_special_tokens=False).input_ids
         full_ids = torch.tensor([prompt_ids + action_ids], device=self.device)
-        return self._score_generated(full_ids, prompt_len=len(prompt_ids))
+        logp, ent = self._score_generated(full_ids, prompt_len=len(prompt_ids))
+
+        # compute EOS logprob at final position for modified SubTB
+        with torch.no_grad():
+            outputs = self.model(full_ids)
+            final_logits = outputs.logits[0, -1, :]
+            log_probs = torch.log_softmax(final_logits, dim=-1)
+            eos_id = self.tokenizer.eos_token_id
+            if eos_id is not None:
+                self._last_eos_logprob_final = float(log_probs[eos_id].item())
+            else:
+                self._last_eos_logprob_final = None
+
+        return logp, ent
 
     def _build_prompt(self, obs: str) -> str:
         """Build prompt from observation.
@@ -518,6 +529,7 @@ class HFPolicy:
     def _render_action(self, action: dict[str, Any]) -> str:
         """Render action to text."""
         import json
+
         return json.dumps(action)
 
     @staticmethod
@@ -754,9 +766,7 @@ class HFPolicy:
 
         return TokenLogProbs(token_ids=tokens.copy(), logprobs=logprobs)
 
-    def score_tokens(
-        self, messages: list[Message], tokens: list[int]
-    ) -> torch.Tensor:
+    def score_tokens(self, messages: list[Message], tokens: list[int]) -> torch.Tensor:
         """Compute differentiable log probabilities for a token sequence.
 
         Unlike logprobs(), this returns a tensor with gradient tracking enabled,

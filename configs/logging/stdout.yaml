@@ -1,0 +1,2 @@
+_target_: synthstats.train.logging.stdout.StdoutLogger
+log_interval: 1

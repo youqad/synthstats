@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 import time
+
+import pytest
 
 from synthstats.distributed.driver_replay_buffer import (
     BufferEntry,
@@ -139,9 +140,7 @@ class TestDriverGFNReplayBuffer:
 
     def test_sample_prioritized(self) -> None:
         """Prioritized sampling favors high reward."""
-        buffer = DriverGFNReplayBuffer(
-            capacity=100, prioritized=True, alpha=1.0
-        )
+        buffer = DriverGFNReplayBuffer(capacity=100, prioritized=True, alpha=1.0)
 
         # add entries with varying rewards
         for i in range(100):
@@ -169,9 +168,7 @@ class TestDriverGFNReplayBuffer:
 
     def test_sample_respects_min_entries(self) -> None:
         """Respects min_entries_before_sample."""
-        buffer = DriverGFNReplayBuffer(
-            capacity=100, min_entries_before_sample=10
-        )
+        buffer = DriverGFNReplayBuffer(capacity=100, min_entries_before_sample=10)
 
         for i in range(5):
             buffer.add(

@@ -180,9 +180,7 @@ class TestTrainer:
 
     def test_trainer_with_device_cpu(self, mock_policy, toy_task, codec, toy_judge):
         config = TrainerConfig(batch_size=2)
-        trainer = Trainer(
-            config, mock_policy, toy_task, codec, judge=toy_judge, device="cpu"
-        )
+        trainer = Trainer(config, mock_policy, toy_task, codec, judge=toy_judge, device="cpu")
         assert trainer is not None
         metrics = trainer.train_step()
         assert metrics is not None

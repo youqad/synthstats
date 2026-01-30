@@ -1,0 +1,18 @@
+# Qwen3-0.6B HuggingFace Policy
+#
+# Fast model for testing and development.
+# 600M params, 32K context, base model.
+
+model_name: Qwen/Qwen3-0.6B
+device: ${device}
+dtype: bfloat16
+
+generation:
+  max_new_tokens: 300
+  temperature: 0.7
+
+training:
+  require_grad_logp: false
+
+lora: null
+gradient_checkpointing: false

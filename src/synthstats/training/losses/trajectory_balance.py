@@ -168,7 +168,7 @@ def compute_trajectory_balance_loss(
     residual = logZ + masked_logprobs - safe_log_rewards
     residual = residual.clamp(-max_residual, max_residual)
 
-    loss = (residual ** 2).mean()
+    loss = (residual**2).mean()
 
     # debug logging
     if logger.isEnabledFor(logging.DEBUG):
@@ -371,7 +371,7 @@ def compute_modified_subtb_loss(
 
         # lambda-weighted squared residual
         weight = subtb_lambda ** (subtraj_len - 1)
-        batch_loss = batch_loss + weight * (residual ** 2).sum()
+        batch_loss = batch_loss + weight * (residual**2).sum()
         total_weight = total_weight + weight * valid_mask.sum()
 
     # normalize by total weight
@@ -380,11 +380,212 @@ def compute_modified_subtb_loss(
     # debug logging
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
-            f"SubTB loss: {loss.item():.4f}, lambda: {subtb_lambda}, "
-            f"seq_len: {T}, batch_size: {B}"
+            f"SubTB loss: {loss.item():.4f}, lambda: {subtb_lambda}, seq_len: {T}, batch_size: {B}"
         )
 
     return loss, 0.0  # no clip ratio for SubTB
+
+
+# -----------------------------------------------------------------------------
+# VarGrad / FlowRL / KL-regularized TB losses
+# -----------------------------------------------------------------------------
+
+
+def estimate_log_partition_vargrad(
+    log_probs: Tensor,
+    log_rewards: Tensor,
+    response_mask: Tensor,
+    ref_log_probs: Tensor | None = None,
+    reward_temp: float = 1.0,
+) -> Tensor:
+    """VarGrad partition function estimator (TBA arXiv:2503.18929).
+
+    Estimates logZ per prompt from a batch of K responses, avoiding the need
+    for a learned logZ parameter. Works best with K >= 4 responses per prompt.
+
+    Formula (log-space for numerical stability):
+        logZ(x) = logsumexp_k(r(y_k)/β - log π_θ(y_k|x) + log π_ref(y_k|x)) - log(K)
+    """
+    if reward_temp <= 0:
+        raise ValueError(f"reward_temp must be positive, got {reward_temp}")
+
+    traj_log_prob = (log_probs * response_mask.float()).sum(dim=-1)
+    score = log_rewards / reward_temp - traj_log_prob
+
+    if ref_log_probs is not None:
+        ref_traj_log_prob = (ref_log_probs * response_mask.float()).sum(dim=-1)
+        score = score + ref_traj_log_prob
+
+    K = score.shape[0]
+    logZ = torch.logsumexp(score, dim=0) - torch.log(
+        torch.tensor(K, dtype=score.dtype, device=score.device)
+    )
+    return logZ
+
+
+def compute_tb_loss_with_kl(
+    log_probs: Tensor,
+    log_rewards: Tensor,
+    response_mask: Tensor,
+    logZ: Tensor,
+    ref_log_probs: Tensor | None = None,
+    length_normalize: bool = True,
+    reward_temp: float = 1.0,
+    max_residual: float = 100.0,
+) -> tuple[Tensor, dict[str, float]]:
+    """TB loss with optional KL regularization (FlowRL/TBA combined)."""
+    B, T = log_probs.shape
+    mask_f = response_mask.float()
+    response_lengths = mask_f.sum(dim=-1).clamp(min=1.0)
+
+    traj_log_prob = (log_probs * mask_f).sum(dim=-1)
+    if length_normalize:
+        traj_log_prob = traj_log_prob / response_lengths
+
+    ref_contribution = torch.zeros_like(traj_log_prob)
+    if ref_log_probs is not None:
+        ref_traj_log_prob = (ref_log_probs * mask_f).sum(dim=-1)
+        if length_normalize:
+            ref_traj_log_prob = ref_traj_log_prob / response_lengths
+        ref_contribution = ref_traj_log_prob
+
+    scaled_rewards = log_rewards / reward_temp if reward_temp != 1.0 else log_rewards
+    residual = logZ + traj_log_prob - scaled_rewards - ref_contribution
+    residual = residual.clamp(-max_residual, max_residual)
+    loss = (residual**2).mean()
+
+    metrics = {
+        "tb_loss": loss.item(),
+        "mean_residual": residual.mean().item(),
+        "std_residual": residual.std().item(),
+        "mean_traj_log_prob": traj_log_prob.mean().item(),
+        "mean_response_length": response_lengths.mean().item(),
+    }
+    if ref_log_probs is not None:
+        metrics["mean_ref_log_prob"] = ref_contribution.mean().item()
+
+    return loss, metrics
+
+
+def compute_flowrl_loss(
+    log_probs: Tensor,
+    log_rewards: Tensor,
+    response_mask: Tensor,
+    logZ: Tensor,
+    ref_log_probs: Tensor | None = None,
+    old_log_probs: Tensor | None = None,
+    length_normalize: bool = True,
+    reward_temp: float = 15.0,
+    max_residual: float = 100.0,
+    use_importance_weights: bool = False,
+) -> tuple[Tensor, dict[str, float]]:
+    """Full FlowRL loss (arXiv:2509.15207) with importance weights."""
+    B, T = log_probs.shape
+    mask_f = response_mask.float()
+    response_lengths = mask_f.sum(dim=-1).clamp(min=1.0)
+
+    traj_log_prob = (log_probs * mask_f).sum(dim=-1)
+    if length_normalize:
+        traj_log_prob = traj_log_prob / response_lengths
+
+    ref_contribution = torch.zeros_like(traj_log_prob)
+    if ref_log_probs is not None:
+        ref_traj = (ref_log_probs * mask_f).sum(dim=-1)
+        if length_normalize:
+            ref_traj = ref_traj / response_lengths
+        ref_contribution = ref_traj
+
+    scaled_rewards = log_rewards / reward_temp if reward_temp != 1.0 else log_rewards
+    residual = logZ + traj_log_prob - scaled_rewards - ref_contribution
+    residual = residual.clamp(-max_residual, max_residual)
+    squared_residual = residual**2
+
+    if use_importance_weights and old_log_probs is not None:
+        old_traj_log_prob = (old_log_probs * mask_f).sum(dim=-1)
+        log_ratio = (log_probs * mask_f).sum(dim=-1) - old_traj_log_prob
+        log_ratio = log_ratio.clamp(-5.0, 5.0)
+        weights = torch.exp(log_ratio).detach()
+    else:
+        if use_importance_weights and old_log_probs is None:
+            logger.warning("use_importance_weights=True but old_log_probs not provided")
+        weights = torch.ones(B, device=log_probs.device, dtype=log_probs.dtype)
+
+    loss = (weights * squared_residual).mean()
+
+    metrics = {
+        "flowrl_loss": loss.item(),
+        "mean_residual": residual.mean().item(),
+        "mean_is_weight": weights.mean().item(),
+        "reward_temp": reward_temp,
+    }
+    return loss, metrics
+
+
+def compute_vargrad_tb_loss(
+    log_probs: Tensor,
+    log_rewards: Tensor,
+    response_mask: Tensor,
+    ref_log_probs: Tensor | None = None,
+    length_normalize: bool = True,
+    reward_temp: float = 1.0,
+    max_residual: float = 100.0,
+    prompt_ids: Tensor | None = None,
+) -> tuple[Tensor, dict[str, float]]:
+    """VarGrad TB loss: estimates logZ from batch (no learned parameter)."""
+    if reward_temp <= 0:
+        raise ValueError(f"reward_temp must be positive, got {reward_temp}")
+
+    B, T = log_probs.shape
+    mask_f = response_mask.float()
+    response_lengths = mask_f.sum(dim=-1).clamp(min=1.0)
+
+    traj_log_prob = (log_probs * mask_f).sum(dim=-1)
+    traj_log_prob_normed = traj_log_prob / response_lengths if length_normalize else traj_log_prob
+
+    ref_contribution = torch.zeros_like(traj_log_prob)
+    ref_contribution_normed = torch.zeros_like(traj_log_prob)
+    if ref_log_probs is not None:
+        ref_traj = (ref_log_probs * mask_f).sum(dim=-1)
+        ref_contribution = ref_traj
+        ref_contribution_normed = ref_traj / response_lengths if length_normalize else ref_traj
+
+    if prompt_ids is not None:
+        unique_prompts = prompt_ids.unique()
+        logZ_per_sample = torch.zeros(B, device=log_probs.device, dtype=log_probs.dtype)
+        for pid in unique_prompts:
+            group_mask = prompt_ids == pid
+            group_scores = (
+                log_rewards[group_mask] / reward_temp
+                - traj_log_prob[group_mask]
+                + ref_contribution[group_mask]
+            )
+            K = group_scores.shape[0]
+            group_logZ = torch.logsumexp(group_scores, dim=0) - torch.log(
+                torch.tensor(K, dtype=group_scores.dtype, device=group_scores.device)
+            )
+            logZ_per_sample[group_mask] = group_logZ
+        logZ = logZ_per_sample
+    else:
+        scores = log_rewards / reward_temp - traj_log_prob + ref_contribution
+        K = B
+        logZ = torch.logsumexp(scores, dim=0) - torch.log(
+            torch.tensor(K, dtype=scores.dtype, device=scores.device)
+        )
+        logZ = logZ.expand(B)
+
+    logZ_detached = logZ.detach()
+    scaled_rewards = log_rewards / reward_temp if reward_temp != 1.0 else log_rewards
+    residual = logZ_detached + traj_log_prob_normed - scaled_rewards - ref_contribution_normed
+    residual = residual.clamp(-max_residual, max_residual)
+    loss = (residual**2).mean()
+
+    metrics = {
+        "vargrad_loss": loss.item(),
+        "estimated_logZ": logZ_detached.mean().item(),
+        "mean_residual": residual.mean().item(),
+        "std_residual": residual.std().item(),
+    }
+    return loss, metrics
 
 
 # -----------------------------------------------------------------------------

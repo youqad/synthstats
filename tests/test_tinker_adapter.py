@@ -45,19 +45,19 @@ def mock_tokenizer():
 
 
 class TestImportSafety:
-    """Test that tinker_adapter is import-safe without Tinker SDK."""
+    """Test that tinker module is import-safe without Tinker SDK."""
 
     def test_import_without_tinker(self):
         """Module should import even without tinker SDK."""
-        from synthstats.integrations import tinker_adapter
+        from synthstats.integrations import tinker
 
-        assert hasattr(tinker_adapter, "is_tinker_available")
-        assert hasattr(tinker_adapter, "TinkerPolicy")
-        assert hasattr(tinker_adapter, "TinkerTrainer")
+        assert hasattr(tinker, "is_tinker_available")
+        assert hasattr(tinker, "TinkerPolicy")
+        assert hasattr(tinker, "TinkerTrainer")
 
     def test_is_tinker_available(self):
         """is_tinker_available returns bool without crashing."""
-        from synthstats.integrations.tinker_adapter import is_tinker_available
+        from synthstats.integrations.tinker import is_tinker_available
 
         result = is_tinker_available()
         assert isinstance(result, bool)
@@ -68,7 +68,7 @@ class TestTinkerConfig:
 
     def test_default_config(self):
         """Config with defaults should work."""
-        from synthstats.integrations.tinker_adapter import TinkerConfig
+        from synthstats.integrations.tinker import TinkerConfig
 
         config = TinkerConfig()
         assert config.model == "Qwen/Qwen3-4B"
@@ -78,7 +78,7 @@ class TestTinkerConfig:
 
     def test_custom_config(self):
         """Config with custom values should work."""
-        from synthstats.integrations.tinker_adapter import TinkerConfig
+        from synthstats.integrations.tinker import TinkerConfig
 
         config = TinkerConfig(
             model="meta-llama/Llama-3.1-8B",
@@ -91,7 +91,7 @@ class TestTinkerConfig:
 
     def test_get_api_key_from_env(self, monkeypatch):
         """Config should read API key from environment."""
-        from synthstats.integrations.tinker_adapter import TinkerConfig
+        from synthstats.integrations.tinker import TinkerConfig
 
         monkeypatch.setenv("TINKER_API_KEY", "env-key-123")
         config = TinkerConfig()
@@ -99,7 +99,7 @@ class TestTinkerConfig:
 
     def test_get_api_key_missing_raises(self, monkeypatch):
         """Config should raise if no API key available."""
-        from synthstats.integrations.tinker_adapter import TinkerConfig
+        from synthstats.integrations.tinker import TinkerConfig
 
         monkeypatch.delenv("TINKER_API_KEY", raising=False)
         config = TinkerConfig()
@@ -112,7 +112,7 @@ class TestMockTinkerClient:
 
     def test_mock_sample(self):
         """Mock client sample() returns valid structure."""
-        from synthstats.integrations.tinker_adapter import MockTinkerClient
+        from synthstats.integrations.tinker import MockTinkerClient
 
         client = MockTinkerClient()
         result = client.sample(prompt="test prompt")
@@ -125,7 +125,7 @@ class TestMockTinkerClient:
 
     def test_mock_logprobs(self):
         """Mock client logprobs() returns valid structure."""
-        from synthstats.integrations.tinker_adapter import MockTinkerClient
+        from synthstats.integrations.tinker import MockTinkerClient
 
         client = MockTinkerClient()
         result = client.logprobs(prompt="test", completion="the answer is 42")
@@ -142,14 +142,14 @@ class TestTinkerPolicyWithMock:
         """Create policy with mock sampling client injected."""
         from dataclasses import dataclass, field
 
-        from synthstats.integrations import tinker_adapter
-        from synthstats.integrations.tinker_adapter import (
+        from synthstats.integrations import tinker
+        from synthstats.integrations.tinker import (
             TinkerConfig,
             TinkerPolicy,
         )
 
         # patch is_tinker_available to return False for mock mode
-        monkeypatch.setattr(tinker_adapter, "is_tinker_available", lambda: False)
+        monkeypatch.setattr(tinker, "is_tinker_available", lambda: False)
 
         # create mock sampling client that matches Tinker's interface
         @dataclass
@@ -217,7 +217,7 @@ class TestTinkerPolicyWithMock:
 
     def test_require_grad_logp_raises(self):
         """require_grad_logp=True should raise NotImplementedError."""
-        from synthstats.integrations.tinker_adapter import TinkerConfig, TinkerPolicy
+        from synthstats.integrations.tinker import TinkerConfig, TinkerPolicy
 
         config = TinkerConfig(api_key="test")
         with pytest.raises(NotImplementedError):
@@ -229,7 +229,7 @@ class TestMockTinkerTrainingClient:
 
     def test_forward_backward_custom(self):
         """Mock training client should call loss function."""
-        from synthstats.integrations.tinker_adapter import MockTinkerTrainingClient
+        from synthstats.integrations.tinker import MockTinkerTrainingClient
 
         client = MockTinkerTrainingClient()
 
@@ -251,7 +251,7 @@ class TestMockTinkerTrainingClient:
 
     def test_optim_step(self):
         """Mock training client optim_step should increment counter."""
-        from synthstats.integrations.tinker_adapter import MockTinkerTrainingClient
+        from synthstats.integrations.tinker import MockTinkerTrainingClient
 
         client = MockTinkerTrainingClient()
         assert client._step_count == 0
@@ -265,7 +265,7 @@ class TestTinkerTrainerWithMock:
     @pytest.fixture
     def mock_trainer(self, monkeypatch):
         """Create trainer with mock client injected."""
-        from synthstats.integrations.tinker_adapter import (
+        from synthstats.integrations.tinker import (
             MockTinkerTrainingClient,
             TinkerConfig,
             TinkerTrainer,
@@ -286,7 +286,7 @@ class TestTinkerTrainerWithMock:
         """train_step should return dict with loss and logZ."""
         batch = {
             "log_probs": torch.tensor([[-0.5, -0.3, -0.2]]),
-            "mask": torch.ones(1, 3, dtype=torch.bool),
+            "loss_mask": torch.ones(1, 3, dtype=torch.bool),
             "log_reward": torch.tensor([0.0]),
             "prompts": ["What is 2+2?"],
             "completions": ["The answer is 4"],
@@ -304,7 +304,7 @@ class TestTinkerTrainerWithMock:
         """train_step should use SubTB loss."""
         batch = {
             "log_probs": torch.tensor([[-0.5, -0.3]]),
-            "mask": torch.ones(1, 2, dtype=torch.bool),
+            "loss_mask": torch.ones(1, 2, dtype=torch.bool),
             "log_reward": torch.tensor([1.0]),
             "prompts": ["test"],
             "completions": ["answer"],
@@ -330,7 +330,7 @@ class TestTinkerEnvProtocol:
 
     def test_protocol_check(self):
         """Protocol should be runtime checkable."""
-        from synthstats.integrations.tinker_adapter import TinkerEnvProtocol
+        from synthstats.integrations.tinker import TinkerEnvProtocol
 
         class FakeEnv:
             def initial_observation(self) -> str:
@@ -348,7 +348,7 @@ class TestIntegrationWithSubTBLoss:
 
     def test_subtb_loss_gradient_flow(self):
         """Verify SubTB loss computation works with trainer."""
-        from synthstats.integrations.tinker_adapter import (
+        from synthstats.integrations.tinker import (
             MockTinkerTrainingClient,
             TinkerConfig,
             TinkerTrainer,
@@ -360,7 +360,7 @@ class TestIntegrationWithSubTBLoss:
 
         batch = {
             "log_probs": torch.tensor([[-0.5, -0.3], [-0.4, -0.2]]),
-            "mask": torch.ones(2, 2, dtype=torch.bool),
+            "loss_mask": torch.ones(2, 2, dtype=torch.bool),
             "log_reward": torch.tensor([0.5, 0.8]),
             "prompts": ["q1", "q2"],
             "completions": ["a1", "a2"],
@@ -392,13 +392,16 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_basic_conversion(self):
         """Basic trajectory should convert correctly."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("system", "You are helpful."),
-            ("user", "What is 2+2?"),
-            ("assistant", "The answer is 4."),
-        ], reward=0.8)
+        traj = self._create_trajectory(
+            [
+                ("system", "You are helpful."),
+                ("user", "What is 2+2?"),
+                ("assistant", "The answer is 4."),
+            ],
+            reward=0.8,
+        )
 
         batch = trajectories_to_tinker_batch([traj])
 
@@ -418,11 +421,12 @@ class TestTrajectoriesToTinkerBatch:
 
         # log_reward should be log(0.8)
         import math
+
         assert abs(batch["log_reward"][0].item() - math.log(0.8)) < 1e-5
 
     def test_prompt_ends_with_newline_delimiter(self):
         """Prompt must end with newline to prevent token fusion with completion."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         # test various prompt endings
         test_cases = [
@@ -442,17 +446,23 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_multiple_trajectories(self):
         """Multiple trajectories should batch correctly."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         trajs = [
-            self._create_trajectory([
-                ("user", "Q1"),
-                ("assistant", "A1"),
-            ], reward=0.5),
-            self._create_trajectory([
-                ("user", "Q2"),
-                ("assistant", "A2"),
-            ], reward=0.9),
+            self._create_trajectory(
+                [
+                    ("user", "Q1"),
+                    ("assistant", "A1"),
+                ],
+                reward=0.5,
+            ),
+            self._create_trajectory(
+                [
+                    ("user", "Q2"),
+                    ("assistant", "A2"),
+                ],
+                reward=0.9,
+            ),
         ]
 
         batch = trajectories_to_tinker_batch(trajs)
@@ -466,13 +476,15 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_tool_messages_in_prompt(self):
         """Tool messages should be included in prompt."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("user", "Run this tool."),
-            ("tool", "Tool output: 42"),
-            ("assistant", "The result is 42."),
-        ])
+        traj = self._create_trajectory(
+            [
+                ("user", "Run this tool."),
+                ("tool", "Tool output: 42"),
+                ("assistant", "The result is 42."),
+            ]
+        )
 
         batch = trajectories_to_tinker_batch([traj])
 
@@ -482,14 +494,16 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_multiple_assistant_messages_rejected_by_default(self):
         """Multiple assistant messages should be rejected (single-turn only)."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("user", "Think step by step."),
-            ("assistant", "Step 1: thinking..."),
-            ("user", "Continue."),
-            ("assistant", "Step 2: done!"),
-        ])
+        traj = self._create_trajectory(
+            [
+                ("user", "Think step by step."),
+                ("assistant", "Step 1: thinking..."),
+                ("user", "Continue."),
+                ("assistant", "Step 2: done!"),
+            ]
+        )
 
         # should raise by default
         with pytest.raises(ValueError, match="multi_turn=True"):
@@ -497,14 +511,16 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_multiple_assistant_with_override(self):
         """With strict_single_turn=False, multi-turn is allowed (but lossy)."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("user", "Think step by step."),
-            ("assistant", "Step 1: thinking..."),
-            ("user", "Continue."),
-            ("assistant", "Step 2: done!"),
-        ])
+        traj = self._create_trajectory(
+            [
+                ("user", "Think step by step."),
+                ("assistant", "Step 1: thinking..."),
+                ("user", "Continue."),
+                ("assistant", "Step 2: done!"),
+            ]
+        )
 
         # override allows it but with warning in docstring
         batch = trajectories_to_tinker_batch([traj], strict_single_turn=False)
@@ -517,12 +533,15 @@ class TestTrajectoriesToTinkerBatch:
         """Reward floor should prevent log(0) = -inf."""
         import math
 
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("user", "Test"),
-            ("assistant", "Answer"),
-        ], reward=0.0)  # zero reward
+        traj = self._create_trajectory(
+            [
+                ("user", "Test"),
+                ("assistant", "Answer"),
+            ],
+            reward=0.0,
+        )  # zero reward
 
         batch = trajectories_to_tinker_batch([traj], reward_floor=1e-10)
 
@@ -535,12 +554,15 @@ class TestTrajectoriesToTinkerBatch:
         """Negative rewards should use floor (shouldn't happen but be safe)."""
         import math
 
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("user", "Test"),
-            ("assistant", "Answer"),
-        ], reward=-1.0)  # negative reward
+        traj = self._create_trajectory(
+            [
+                ("user", "Test"),
+                ("assistant", "Answer"),
+            ],
+            reward=-1.0,
+        )  # negative reward
 
         batch = trajectories_to_tinker_batch([traj], reward_floor=1e-4)
 
@@ -550,19 +572,21 @@ class TestTrajectoriesToTinkerBatch:
 
     def test_device_parameter(self):
         """Device parameter should work."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
-        traj = self._create_trajectory([
-            ("user", "Test"),
-            ("assistant", "Answer"),
-        ])
+        traj = self._create_trajectory(
+            [
+                ("user", "Test"),
+                ("assistant", "Answer"),
+            ]
+        )
 
         batch = trajectories_to_tinker_batch([traj], device="cpu")
         assert batch["log_reward"].device.type == "cpu"
 
     def test_empty_trajectories_raises(self):
         """Empty trajectory list should raise or return empty."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         batch = trajectories_to_tinker_batch([])
 
@@ -571,9 +595,9 @@ class TestTrajectoriesToTinkerBatch:
         assert batch["log_reward"].shape == (0,)
 
     def test_loss_mask_passthrough(self):
-        """Trajectory with loss_mask should have mask in batch."""
+        """Trajectory with loss_mask should have loss_mask in batch."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         # trajectory with explicit loss_mask (some tokens masked)
         traj = Trajectory(
@@ -589,14 +613,14 @@ class TestTrajectoriesToTinkerBatch:
 
         batch = trajectories_to_tinker_batch([traj])
 
-        assert "mask" in batch
-        assert batch["mask"].shape == (1, 5)
-        assert batch["mask"][0].tolist() == [False, False, False, True, True]
+        assert "loss_mask" in batch
+        assert batch["loss_mask"].shape == (1, 5)
+        assert batch["loss_mask"][0].tolist() == [False, False, False, True, True]
 
     def test_loss_mask_not_present_if_all_empty(self):
-        """Trajectory without loss_mask should not have mask in batch."""
+        """Trajectory without loss_mask should not have loss_mask in batch."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         # trajectory with empty loss_mask
         traj = Trajectory(
@@ -612,13 +636,13 @@ class TestTrajectoriesToTinkerBatch:
 
         batch = trajectories_to_tinker_batch([traj])
 
-        # no mask key when no actual masks
-        assert "mask" not in batch
+        # no loss_mask key when no actual masks
+        assert "loss_mask" not in batch
 
     def test_loss_mask_padding_mixed_lengths(self):
         """Multiple trajectories with different mask lengths should pad correctly."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj1 = Trajectory(
             messages=[
@@ -644,16 +668,16 @@ class TestTrajectoriesToTinkerBatch:
 
         batch = trajectories_to_tinker_batch([traj1, traj2])
 
-        assert "mask" in batch
-        assert batch["mask"].shape == (2, 5)  # padded to max length
+        assert "loss_mask" in batch
+        assert batch["loss_mask"].shape == (2, 5)  # padded to max length
         # traj1's mask is padded with True (default)
-        assert batch["mask"][0].tolist() == [True, True, True, True, True]
-        assert batch["mask"][1].tolist() == [True, False, True, False, True]
+        assert batch["loss_mask"][0].tolist() == [True, True, True, True, True]
+        assert batch["loss_mask"][1].tolist() == [True, False, True, False, True]
 
     def test_loss_mask_some_trajectories_have_mask(self):
         """Mixed batch: some trajectories have mask, some don't."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj_with_mask = Trajectory(
             messages=[
@@ -679,12 +703,12 @@ class TestTrajectoriesToTinkerBatch:
 
         batch = trajectories_to_tinker_batch([traj_with_mask, traj_without_mask])
 
-        assert "mask" in batch
-        assert batch["mask"].shape == (2, 3)  # padded to max length
+        assert "loss_mask" in batch
+        assert batch["loss_mask"].shape == (2, 3)  # padded to max length
         # traj1 has explicit mask
-        assert batch["mask"][0].tolist() == [True, False, True]
+        assert batch["loss_mask"][0].tolist() == [True, False, True]
         # traj2 has no mask, defaults to all True
-        assert batch["mask"][1].tolist() == [True, True, True]
+        assert batch["loss_mask"][1].tolist() == [True, True, True]
 
 
 class TestMultiTurnSupport:
@@ -707,19 +731,23 @@ class TestMultiTurnSupport:
         loss_mask = []
 
         for i in range(turns):
-            messages.append(Message(
-                role="assistant",
-                content=f"Turn {i}: Analysis step {i}",
-            ))
+            messages.append(
+                Message(
+                    role="assistant",
+                    content=f"Turn {i}: Analysis step {i}",
+                )
+            )
             token_ids.append([i * 10 + j for j in range(5)])
             token_logprobs.append([-0.1] * 5)
             loss_mask.append([True, True, False, True, True])
 
             if i < turns - 1:
-                messages.append(Message(
-                    role="user",
-                    content=f"Continue with step {i + 1}.",
-                ))
+                messages.append(
+                    Message(
+                        role="user",
+                        content=f"Continue with step {i + 1}.",
+                    )
+                )
 
         return Trajectory(
             messages=messages,
@@ -731,7 +759,7 @@ class TestMultiTurnSupport:
 
     def test_multi_turn_conversion_enabled(self):
         """Multi-turn mode should extract turn boundaries."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = self._create_multi_turn_trajectory(turns=3)
         batch = trajectories_to_tinker_batch([traj], multi_turn=True)
@@ -746,7 +774,7 @@ class TestMultiTurnSupport:
 
     def test_multi_turn_boundaries_have_correct_indices(self):
         """Turn boundaries should map to correct generation indices."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = self._create_multi_turn_trajectory(turns=2)
         batch = trajectories_to_tinker_batch([traj], multi_turn=True)
@@ -759,7 +787,7 @@ class TestMultiTurnSupport:
 
     def test_multi_turn_final_turn_has_reward(self):
         """Only final assistant turn should have has_reward=True."""
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = self._create_multi_turn_trajectory(turns=3)
         batch = trajectories_to_tinker_batch([traj], multi_turn=True)
@@ -774,7 +802,7 @@ class TestMultiTurnSupport:
     def test_single_turn_backward_compat_in_multi_mode(self):
         """Single-turn trajectories should work in multi_turn mode."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -799,7 +827,7 @@ class TestMultiTurnSupport:
     def test_multi_turn_completion_preserves_structure(self):
         """Multi-turn completion should preserve all messages."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -825,7 +853,7 @@ class TestMultiTurnSupport:
     def test_multi_turn_user_turns_in_boundaries(self):
         """User turns between assistant turns should be in boundaries."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -849,7 +877,7 @@ class TestMultiTurnSupport:
     def test_zero_assistant_messages_returns_empty(self):
         """Trajectory with 0 assistant messages should return empty completion."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -871,7 +899,7 @@ class TestMultiTurnSupport:
     def test_empty_assistant_content_creates_zero_width_boundary(self):
         """Empty assistant content should create zero-width boundary."""
         from synthstats.core.types import Message, Reward, Trajectory
-        from synthstats.integrations.tinker_adapter import trajectories_to_tinker_batch
+        from synthstats.integrations.tinker import trajectories_to_tinker_batch
 
         traj = Trajectory(
             messages=[
@@ -891,8 +919,9 @@ class TestMultiTurnSupport:
 
         # find the empty assistant boundary (generation_idx=0)
         empty_boundary = [b for b in boundaries if b.generation_idx == 0][0]
-        assert empty_boundary.start_char == empty_boundary.end_char, \
+        assert empty_boundary.start_char == empty_boundary.end_char, (
             "Empty content should create zero-width boundary"
+        )
 
 
 class TestBuildTurnMask:
@@ -900,7 +929,7 @@ class TestBuildTurnMask:
 
     def test_assistant_only_included(self, mock_tokenizer):
         """Only assistant turn tokens should be True in mask."""
-        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
+        from synthstats.integrations.tinker import TurnBoundary, _build_turn_mask
 
         completion = "Assistant response\nUser question\nAssistant again"
         boundaries = [
@@ -909,9 +938,7 @@ class TestBuildTurnMask:
             TurnBoundary(33, 48, "assistant", 1, True),
         ]
 
-        mask = _build_turn_mask(
-            completion, boundaries, mock_tokenizer, len(completion), "cpu"
-        )
+        mask = _build_turn_mask(completion, boundaries, mock_tokenizer, len(completion), "cpu")
 
         # assistant regions should be True
         assert mask[0:18].all()  # first assistant
@@ -922,14 +949,14 @@ class TestBuildTurnMask:
 
     def test_empty_boundaries_all_false(self, mock_tokenizer):
         """Empty boundaries should result in all-False mask."""
-        from synthstats.integrations.tinker_adapter import _build_turn_mask
+        from synthstats.integrations.tinker import _build_turn_mask
 
         mask = _build_turn_mask("some text", [], mock_tokenizer, 9, "cpu")
         assert not mask.any()
 
     def test_raises_without_offset_mapping(self):
         """Should raise ValueError if tokenizer lacks offset_mapping support."""
-        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
+        from synthstats.integrations.tinker import TurnBoundary, _build_turn_mask
 
         completion = "Test"
         boundaries = [TurnBoundary(0, 4, "assistant", 0, True)]
@@ -947,7 +974,7 @@ class TestBuildTurnMask:
         When Tinker tokenizes prompt+completion, logprobs include prompt tokens.
         The mask must be offset so it marks completion positions, not prompt ones.
         """
-        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
+        from synthstats.integrations.tinker import TurnBoundary, _build_turn_mask
 
         # completion = "AB" (2 chars = 2 tokens with our mock)
         # boundary marks entire completion as assistant
@@ -966,16 +993,16 @@ class TestBuildTurnMask:
 
     def test_prompt_offset_with_multi_turn(self, mock_tokenizer):
         """Multi-turn with prompt offset should mark only assistant turns."""
-        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
+        from synthstats.integrations.tinker import TurnBoundary, _build_turn_mask
 
         # completion = "A1\nQ2\nA2" = "A1" (assistant) + "\n" + "Q2" (user)
         # + "\n" + "A2" (assistant)
         # chars: A=0, 1=1, \n=2, Q=3, 2=4, \n=5, A=6, 2=7
         completion = "A1\nQ2\nA2"
         boundaries = [
-            TurnBoundary(0, 2, "assistant", 0, False),   # "A1" at chars 0-2
-            TurnBoundary(3, 5, "user", -1, False),       # "Q2" at chars 3-5
-            TurnBoundary(6, 8, "assistant", 1, True),    # "A2" at chars 6-8
+            TurnBoundary(0, 2, "assistant", 0, False),  # "A1" at chars 0-2
+            TurnBoundary(3, 5, "user", -1, False),  # "Q2" at chars 3-5
+            TurnBoundary(6, 8, "assistant", 1, True),  # "A2" at chars 6-8
         ]
 
         # prompt has 4 tokens, so offset = 4-1 = 3 (accounting for shift)
@@ -993,7 +1020,7 @@ class TestBuildTurnMask:
 
     def test_prompt_offset_default_zero(self, mock_tokenizer):
         """Default prompt_offset=0 should not shift mask positions."""
-        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
+        from synthstats.integrations.tinker import TurnBoundary, _build_turn_mask
 
         completion = "ABC"
         boundaries = [TurnBoundary(0, 3, "assistant", 0, True)]
@@ -1006,7 +1033,7 @@ class TestBuildTurnMask:
 
     def test_prompt_offset_exceeds_seq_len(self, mock_tokenizer):
         """Offset >= seq_len should result in all-False mask (silent edge case)."""
-        from synthstats.integrations.tinker_adapter import TurnBoundary, _build_turn_mask
+        from synthstats.integrations.tinker import TurnBoundary, _build_turn_mask
 
         completion = "AB"
         boundaries = [TurnBoundary(0, 2, "assistant", 0, True)]
@@ -1024,7 +1051,7 @@ class TestTinkerTrainerMultiTurn:
     @pytest.fixture
     def mock_trainer(self, monkeypatch):
         """Create trainer with mock client for multi-turn testing."""
-        from synthstats.integrations.tinker_adapter import (
+        from synthstats.integrations.tinker import (
             MockTinkerTrainingClient,
             TinkerConfig,
             TinkerTrainer,
@@ -1052,18 +1079,20 @@ class TestTinkerTrainerMultiTurn:
 
     def test_train_step_multi_turn_with_boundaries(self, mock_trainer):
         """Multi-turn batches should use turn boundaries for masking."""
-        from synthstats.integrations.tinker_adapter import TurnBoundary
+        from synthstats.integrations.tinker import TurnBoundary
 
         batch = {
             "prompts": ["System\nUser"],
             "completions": ["Asst1\nUser2\nAsst2"],
             "log_reward": torch.tensor([0.5]),
             "is_multi_turn": True,
-            "turn_boundaries": [[
-                TurnBoundary(0, 5, "assistant", 0, False),
-                TurnBoundary(6, 11, "user", -1, False),
-                TurnBoundary(12, 17, "assistant", 1, True),
-            ]],
+            "turn_boundaries": [
+                [
+                    TurnBoundary(0, 5, "assistant", 0, False),
+                    TurnBoundary(6, 11, "user", -1, False),
+                    TurnBoundary(12, 17, "assistant", 1, True),
+                ]
+            ],
         }
 
         result = mock_trainer.train_step(batch)

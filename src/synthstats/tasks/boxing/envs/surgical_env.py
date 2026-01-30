@@ -27,9 +27,18 @@ class SurgicalEnv:
     # exposures (number of operations) - based on BUGS examples
     # these represent person-years at risk or procedure counts
     DEFAULT_EXPOSURES = [
-        1767, 2367, 2145, 1098, 2389,
-        1876, 2134, 1567, 2897, 1234,
-        1876, 2456,
+        1767,
+        2367,
+        2145,
+        1098,
+        2389,
+        1876,
+        2134,
+        1567,
+        2897,
+        1234,
+        1876,
+        2456,
     ]
 
     def __init__(self):
@@ -55,21 +64,17 @@ class SurgicalEnv:
         self.sigma = self.rng.uniform(0.3, 0.8)
 
         # sample log-hazards for each hospital
-        self.log_hazards = [
-            self.rng.gauss(self.mu, self.sigma) for _ in range(self.n_hospitals)
-        ]
+        self.log_hazards = [self.rng.gauss(self.mu, self.sigma) for _ in range(self.n_hospitals)]
         self.hazards = [math.exp(lh) for lh in self.log_hazards]
 
         # randomize exposures slightly around defaults
         self.exposures = [
-            max(100, int(e * self.rng.uniform(0.8, 1.2)))
-            for e in self.DEFAULT_EXPOSURES
+            max(100, int(e * self.rng.uniform(0.8, 1.2))) for e in self.DEFAULT_EXPOSURES
         ]
 
         # sample deaths from Poisson
         self.deaths = [
-            self._poisson(self.exposures[j] * self.hazards[j])
-            for j in range(self.n_hospitals)
+            self._poisson(self.exposures[j] * self.hazards[j]) for j in range(self.n_hospitals)
         ]
 
     def _poisson(self, lam: float) -> int:

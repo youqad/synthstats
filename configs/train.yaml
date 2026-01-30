@@ -1,0 +1,30 @@
+# SynthStats Training Configuration
+#
+# Top-level config for unified training entrypoint.
+# Dispatches to runners based on runner.type setting.
+#
+# Usage:
+#   synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b
+#   synthstats-train runner=skyrl_ray env=dugongs policy=hf_qwen3_4b
+#   synthstats-train runner=tinker env=dugongs policy=tinker
+
+defaults:
+  - runner: local
+  - env: dugongs
+  - policy: hf_qwen3_0_6b
+  - objective: subtb
+  - learner: subtb_torch
+  - logging: stdout
+  - checkpoint: torch_full
+  - _self_
+
+seed: 42
+device: auto
+
+run:
+  name: ${now:%Y-%m-%d_%H-%M-%S}
+  output_dir: runs/${run.name}
+
+hydra:
+  run:
+    dir: ${run.output_dir}

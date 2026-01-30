@@ -65,10 +65,7 @@ class StepLogger:
 
         # log to wandb if available
         if self.wandb_module is not None:
-            wandb_metrics = {
-                f"{self.prefix}{k}": v
-                for k, v in metrics.items()
-            }
+            wandb_metrics = {f"{self.prefix}{k}": v for k, v in metrics.items()}
             self.wandb_module.log(wandb_metrics, step=step_idx)
 
     def log_evaluation(
@@ -93,10 +90,7 @@ class StepLogger:
         }
 
         if self.wandb_module is not None:
-            wandb_metrics = {
-                f"eval/{k}": v
-                for k, v in metrics.items()
-            }
+            wandb_metrics = {f"eval/{k}": v for k, v in metrics.items()}
             self.wandb_module.log(wandb_metrics, step=step_idx)
 
     def log_episode(
@@ -124,10 +118,7 @@ class StepLogger:
         }
 
         if self.wandb_module is not None:
-            wandb_metrics = {
-                f"episode/{k}": v
-                for k, v in metrics.items()
-            }
+            wandb_metrics = {f"episode/{k}": v for k, v in metrics.items()}
             self.wandb_module.log(wandb_metrics, step=episode_idx)
 
     def get_summary(self) -> dict[str, float]:

@@ -1,0 +1,25 @@
+# Ray + SkyRL Distributed Training Runner
+#
+# EXPERIMENTAL: This runner is not yet fully implemented.
+# See SkyRLRayRunner for current status.
+#
+# Distributed training via Ray and SkyRL's BasePPOExp.
+# Requires SkyRL and Ray to be installed.
+
+type: skyrl_ray
+experimental: true
+
+ray:
+  address: null
+  gpus_per_node: 4
+  cpus_per_gpu: 8
+  object_store_fraction: 0.25
+  dashboard_port: 8265
+
+skyrl:
+  vllm: true
+
+train:
+  steps: 1000
+  batch_size: 4
+  temperature: 0.7

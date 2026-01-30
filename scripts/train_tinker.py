@@ -64,7 +64,7 @@ def create_mock_trajectory(
 
 def run_mock_training(cfg: DictConfig) -> dict[str, float]:
     """Run training with mock clients for testing."""
-    from synthstats.integrations.tinker_adapter import (
+    from synthstats.integrations.tinker import (
         MockTinkerTrainingClient,
         TinkerConfig,
         TinkerTrainer,
@@ -136,7 +136,7 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
 
 def run_real_training(cfg: DictConfig) -> dict[str, float]:
     """Run training with real Tinker API."""
-    from synthstats.integrations.tinker_adapter import (
+    from synthstats.integrations.tinker import (
         TinkerConfig,
         TinkerPolicy,
         TinkerTrainer,

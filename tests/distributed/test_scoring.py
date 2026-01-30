@@ -6,10 +6,10 @@ import pytest
 import torch
 
 from synthstats.distributed.scoring import (
+    STOP_TOKEN_IDS,
     build_response_mask,
     compute_log_probs_with_eos,
     get_stop_token_ids,
-    STOP_TOKEN_IDS,
 )
 
 
@@ -89,10 +89,12 @@ class TestBuildResponseMask:
 
     def test_batch_with_different_prompt_lengths(self) -> None:
         """Handles varying prompt lengths."""
-        input_ids = torch.tensor([
-            [1, 2, 3, 4, 5, 0],  # prompt=2, response=3, pad=1
-            [1, 2, 3, 4, 5, 6],  # prompt=3, response=3
-        ])
+        input_ids = torch.tensor(
+            [
+                [1, 2, 3, 4, 5, 0],  # prompt=2, response=3, pad=1
+                [1, 2, 3, 4, 5, 6],  # prompt=3, response=3
+            ]
+        )
         prompt_lengths = torch.tensor([2, 3])
 
         mask = build_response_mask(input_ids, prompt_lengths, pad_token_id=0)
@@ -101,9 +103,11 @@ class TestBuildResponseMask:
 
     def test_with_padding(self) -> None:
         """Padding tokens masked out."""
-        input_ids = torch.tensor([
-            [1, 2, 3, 0, 0],  # real tokens + padding
-        ])
+        input_ids = torch.tensor(
+            [
+                [1, 2, 3, 0, 0],  # real tokens + padding
+            ]
+        )
         prompt_lengths = torch.tensor([1])
 
         mask = build_response_mask(input_ids, prompt_lengths, pad_token_id=0)
@@ -135,7 +139,7 @@ class TestComputeLogProbsWithEos:
                 # make token 0 always most likely, token 2 second
                 logits = torch.zeros(B, L, V)
                 logits[..., 0] = 10.0  # token 0 has highest prob
-                logits[..., 2] = 5.0   # EOS token
+                logits[..., 2] = 5.0  # EOS token
 
                 class Output:
                     pass

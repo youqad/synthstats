@@ -356,7 +356,7 @@ class TestBoxingCodec:
 
         codec = BoxingCodec()
         program_code = "import pymc as pm"
-        text = f'<submit_program>{program_code}</submit_program>'
+        text = f"<submit_program>{program_code}</submit_program>"
         action = codec.parse(text)
 
         from synthstats.core.types import Program

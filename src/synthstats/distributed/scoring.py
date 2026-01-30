@@ -63,13 +63,13 @@ def get_stop_token_ids(
 
     # try to get from tokenizer first
     if hasattr(tokenizer, "eos_token_id"):
-        _add_id(getattr(tokenizer, "eos_token_id"))
+        _add_id(tokenizer.eos_token_id)
     if hasattr(tokenizer, "eos_token_ids"):
-        _add_id(getattr(tokenizer, "eos_token_ids"))
+        _add_id(tokenizer.eos_token_ids)
 
     # infer model name from tokenizer if not provided
     if model_name is None and hasattr(tokenizer, "name_or_path"):
-        model_name = getattr(tokenizer, "name_or_path")
+        model_name = tokenizer.name_or_path
 
     # if model name provided, use known stop tokens
     if model_name:

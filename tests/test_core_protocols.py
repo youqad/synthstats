@@ -5,7 +5,6 @@ Tests include both structural checks (protocol shape) and behavioral tests
 """
 
 
-
 class TestTaskProtocol:
     def test_task_protocol_has_name_attribute(self):
         from synthstats.core.task import Task
@@ -88,9 +87,7 @@ class TestTaskProtocol:
                 ]
 
             def step(self, state: dict, action: Action) -> StepResult:
-                return StepResult(
-                    next_state={"turn": state["turn"] + 1}, done=False, artifacts={}
-                )
+                return StepResult(next_state={"turn": state["turn"] + 1}, done=False, artifacts={})
 
         task = MessageTask()
         state = task.reset()
@@ -164,6 +161,7 @@ class TestPolicyProtocol:
 
             def logprobs(self, messages: list[Message], tokens: list[int]):
                 from synthstats.core.policy import TokenLogProbs
+
                 return TokenLogProbs(token_ids=tokens, logprobs=[-0.1] * len(tokens))
 
         policy = DummyPolicy()
@@ -264,9 +262,7 @@ class TestExecutorProtocol:
             name = "failing"
 
             def execute(self, payload: ToolCall, *, timeout_s: float) -> ToolResult:
-                return ToolResult(
-                    output="", success=False, error="Intentional failure for testing"
-                )
+                return ToolResult(output="", success=False, error="Intentional failure for testing")
 
         executor = FailingExecutor()
         call = ToolCall(name="test", input={}, raw="")
@@ -286,9 +282,7 @@ class TestJudgeProtocol:
         from synthstats.core.types import Message, Reward, Trajectory
 
         class DummyJudge:
-            def score(
-                self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-            ) -> Reward:
+            def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
                 return Reward(total=1.0, components={}, info={})
 
         judge = DummyJudge()
@@ -309,9 +303,7 @@ class TestJudgeProtocol:
         class LengthJudge:
             """Scores based on total message length."""
 
-            def score(
-                self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-            ) -> Reward:
+            def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
                 total_chars = sum(len(m.content) for m in trajectory.messages)
                 normalized = min(total_chars / 100.0, 1.0)
                 return Reward(
@@ -324,12 +316,16 @@ class TestJudgeProtocol:
 
         short_traj = Trajectory(
             messages=[Message(role="user", content="hi")],
-            token_ids=[], token_logprobs=[], loss_mask=[],
+            token_ids=[],
+            token_logprobs=[],
+            loss_mask=[],
             reward=Reward(total=0.0, components={}, info={}),
         )
         long_traj = Trajectory(
             messages=[Message(role="user", content="x" * 200)],
-            token_ids=[], token_logprobs=[], loss_mask=[],
+            token_ids=[],
+            token_logprobs=[],
+            loss_mask=[],
             reward=Reward(total=0.0, components={}, info={}),
         )
 
@@ -347,9 +343,7 @@ class TestJudgeProtocol:
         class ArtifactJudge:
             """Scores based on artifacts."""
 
-            def score(
-                self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-            ) -> Reward:
+            def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
                 score = artifacts.get("quality_score", 0.0)
                 return Reward(
                     total=score,
@@ -360,7 +354,9 @@ class TestJudgeProtocol:
         judge = ArtifactJudge()
         traj = Trajectory(
             messages=[Message(role="user", content="test")],
-            token_ids=[], token_logprobs=[], loss_mask=[],
+            token_ids=[],
+            token_logprobs=[],
+            loss_mask=[],
             reward=Reward(total=0.0, components={}, info={}),
         )
 

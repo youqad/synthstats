@@ -273,10 +273,16 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
             )
 
     def _execute_program_for_elpd(self, code: str) -> float | None:
-        """Execute PyMC program in subprocess and compute ELPD-LOO."""
+        """Execute PyMC program in subprocess and compute ELPD-LOO.
+
+        Uses rlimits to prevent runaway processes (30s CPU, 2GB memory).
+        """
+        import os as _os
         import re as _re
+        import signal
         import subprocess
         import sys
+        import tempfile
 
         # reduce sample count for training speed
         modified = _re.sub(
@@ -300,22 +306,80 @@ except Exception as _e:
 
         full_code = modified + "\n" + elpd_snippet
 
+        def _set_rlimits() -> None:
+            """Unix resource limits for subprocess."""
+            try:
+                import resource
+                import sys as _sys
+
+                resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+                if _sys.platform == "linux":
+                    mem_limit = 2 * 1024 * 1024 * 1024
+                    resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
+            except (ImportError, AttributeError, ValueError, OSError):
+                pass
+
         try:
-            import os as _os
             sub_env = _os.environ.copy()
             sub_env["PYTENSOR_FLAGS"] = "device=cpu,cxx="
+            for var in [
+                "SSH_AUTH_SOCK",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_ACCESS_KEY_ID",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "HF_TOKEN",
+                "WANDB_API_KEY",
+            ]:
+                sub_env.pop(var, None)
 
-            result = subprocess.run(
-                [sys.executable, "-"],
-                input=full_code,
-                capture_output=True,
-                text=True,
-                timeout=180.0,
-                cwd="/tmp",
-                env=sub_env,
-            )
+            with tempfile.TemporaryDirectory(prefix="synthstats_") as tmpdir:
+                proc = subprocess.Popen(
+                    [sys.executable, "-"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    cwd=tmpdir,
+                    env=sub_env,
+                    preexec_fn=_set_rlimits,
+                    start_new_session=True,
+                )
+                try:
+                    stdout, stderr = proc.communicate(input=full_code, timeout=180.0)
+                except subprocess.TimeoutExpired:
+                    # kill entire process group (start_new_session=True creates new pgid)
+                    # NOTE: Avoid hanging in cleanup if something goes wrong.
+                    try:
+                        if hasattr(_os, "killpg") and hasattr(_os, "getpgid"):
+                            pgid = _os.getpgid(proc.pid)
+                            for sig in (signal.SIGTERM, signal.SIGKILL):
+                                try:
+                                    _os.killpg(pgid, sig)
+                                except (ProcessLookupError, OSError):
+                                    pass
+                                try:
+                                    proc.wait(timeout=2.0)
+                                    break
+                                except subprocess.TimeoutExpired:
+                                    continue
+                        else:
+                            proc.kill()
+                            proc.wait(timeout=2.0)
+                    except Exception:
+                        # best-effort fallback: kill the parent process
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                        try:
+                            proc.wait(timeout=2.0)
+                        except Exception:
+                            pass
+                    logger.warning("Program timed out (180s)")
+                    return None
 
-            for line in result.stdout.split("\n"):
+            for line in stdout.split("\n"):
                 if line.startswith("__ELPD__:"):
                     try:
                         return float(line.split(":", 1)[1])
@@ -324,11 +388,8 @@ except Exception as _e:
                 elif line.startswith("__ELPD_ERR__:"):
                     logger.warning(f"ELPD error: {line}")
 
-            if result.returncode != 0:
-                logger.warning(f"Program failed: {result.stderr[:300]}")
-
-        except subprocess.TimeoutExpired:
-            logger.warning("Program timed out (120s)")
+            if proc.returncode != 0:
+                logger.warning(f"Program failed: {stderr[:300]}")
         except Exception as e:
             logger.warning(f"Program exec error: {e}")
 
@@ -352,8 +413,7 @@ except Exception as _e:
         from synthstats.core.types import Message, Reward
 
         messages = [
-            Message(role=m["role"], content=m["content"])
-            for m in self._trajectory_messages
+            Message(role=m["role"], content=m["content"]) for m in self._trajectory_messages
         ]
 
         # create trajectory stub for Judge

@@ -49,9 +49,7 @@ class EightSchoolsEnv:
         self.theta = [self.rng.gauss(self.mu, max(0.1, self.tau)) for _ in range(8)]
 
         # generate observed effects (with known standard errors)
-        self.observed_effects = [
-            self.rng.gauss(self.theta[j], self.KNOWN_SES[j]) for j in range(8)
-        ]
+        self.observed_effects = [self.rng.gauss(self.theta[j], self.KNOWN_SES[j]) for j in range(8)]
 
     def query(self, query: str) -> str:
         """Query the environment with a school ID.

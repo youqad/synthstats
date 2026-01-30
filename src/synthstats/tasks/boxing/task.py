@@ -104,12 +104,12 @@ class BoxingTask:
             "lengths = np.array([...])  # your observed lengths\n"
             "\n"
             "with pm.Model() as model:\n"
-            "    alpha = pm.Normal(\"alpha\", mu=3, sigma=1)\n"
-            "    beta = pm.Normal(\"beta\", mu=1, sigma=1)\n"
-            "    lam = pm.Beta(\"lam\", alpha=2, beta=2)\n"
-            "    sigma = pm.HalfNormal(\"sigma\", sigma=1)\n"
+            '    alpha = pm.Normal("alpha", mu=3, sigma=1)\n'
+            '    beta = pm.Normal("beta", mu=1, sigma=1)\n'
+            '    lam = pm.Beta("lam", alpha=2, beta=2)\n'
+            '    sigma = pm.HalfNormal("sigma", sigma=1)\n'
             "    mu = alpha - beta * lam**ages\n"
-            "    obs = pm.Normal(\"obs\", mu=mu, sigma=sigma, observed=lengths)\n"
+            '    obs = pm.Normal("obs", mu=mu, sigma=sigma, observed=lengths)\n'
             "    idata = pm.sample(1000, return_inferencedata=True)\n"
             "</submit_program>\n"
             "\n"
@@ -127,9 +127,7 @@ class BoxingTask:
         """
         system_msg = Message(role="system", content=self.system_prompt())
         obs_content = (
-            "\n".join(state.observations)
-            if state.observations
-            else "No observations yet."
+            "\n".join(state.observations) if state.observations else "No observations yet."
         )
         user_msg = Message(role="user", content=f"Observations:\n{obs_content}")
         return [system_msg, user_msg]

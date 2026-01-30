@@ -313,9 +313,7 @@ class TestRolloutEpisode:
                 self._responses = responses
                 self._call_count = 0
 
-            def generate(
-                self, messages: list[Message], *, gen: GenConfig
-            ) -> Generation:
+            def generate(self, messages: list[Message], *, gen: GenConfig) -> Generation:
                 idx = min(self._call_count, len(self._responses) - 1)
                 text = self._responses[idx]
                 self._call_count += 1
@@ -329,9 +327,7 @@ class TestRolloutEpisode:
             def logprobs(self, messages: list[Message], tokens: list[int]):
                 from synthstats.core.policy import TokenLogProbs
 
-                return TokenLogProbs(
-                    token_ids=tokens, logprobs=[-0.1] * len(tokens)
-                )
+                return TokenLogProbs(token_ids=tokens, logprobs=[-0.1] * len(tokens))
 
         return DummyPolicy(responses)
 
@@ -360,9 +356,7 @@ class TestRolloutEpisode:
             def __init__(self, reward_value: float):
                 self._reward_value = reward_value
 
-            def score(
-                self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-            ) -> Reward:
+            def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
                 return Reward(
                     total=self._reward_value,
                     components={"test": self._reward_value},
@@ -421,10 +415,12 @@ class TestRolloutEpisode:
 
         task = self._make_dummy_task()
         # first call returns tool call, second returns final answer
-        policy = self._make_dummy_policy([
-            '{"tool": "dummy", "input": {"x": 1}}',
-            '{"answer": "done"}',
-        ])
+        policy = self._make_dummy_policy(
+            [
+                '{"tool": "dummy", "input": {"x": 1}}',
+                '{"answer": "done"}',
+            ]
+        )
         codec = JSONToolCodec()
         executor = self._make_dummy_executor()
         judge = self._make_dummy_judge()
@@ -449,9 +445,7 @@ class TestRolloutEpisode:
 
         task = self._make_dummy_task()
         # policy always returns tool call, never final answer
-        policy = self._make_dummy_policy(
-            ['{"tool": "dummy", "input": {}}'] * 100
-        )
+        policy = self._make_dummy_policy(['{"tool": "dummy", "input": {}}'] * 100)
         codec = JSONToolCodec()
         executor = self._make_dummy_executor()
         judge = self._make_dummy_judge()
@@ -476,10 +470,12 @@ class TestRolloutEpisode:
 
         task = self._make_dummy_task()
         # first call returns unparseable text, should trigger error handling
-        policy = self._make_dummy_policy([
-            "Invalid response with no JSON",
-            '{"answer": "done"}',
-        ])
+        policy = self._make_dummy_policy(
+            [
+                "Invalid response with no JSON",
+                '{"answer": "done"}',
+            ]
+        )
         codec = JSONToolCodec()
         judge = self._make_dummy_judge()
         cfg = RolloutConfig(max_steps=10)
@@ -501,10 +497,12 @@ class TestRolloutEpisode:
 
         task = self._make_dummy_task()
         # policy calls unknown tool, then returns final answer
-        policy = self._make_dummy_policy([
-            '{"tool": "unknown_tool", "input": {}}',
-            '{"answer": "done"}',
-        ])
+        policy = self._make_dummy_policy(
+            [
+                '{"tool": "unknown_tool", "input": {}}',
+                '{"answer": "done"}',
+            ]
+        )
         codec = JSONToolCodec()
         judge = self._make_dummy_judge()
         cfg = RolloutConfig(max_steps=10)
@@ -612,10 +610,12 @@ class TestRolloutEpisode:
                 )
 
         task = ArtifactTask()
-        policy = self._make_dummy_policy([
-            '{"tool": "dummy", "input": {}}',
-            '{"answer": "done"}',
-        ])
+        policy = self._make_dummy_policy(
+            [
+                '{"tool": "dummy", "input": {}}',
+                '{"answer": "done"}',
+            ]
+        )
         codec = JSONToolCodec()
         executor = self._make_dummy_executor()
 
@@ -627,6 +627,7 @@ class TestRolloutEpisode:
                 nonlocal captured_artifacts
                 captured_artifacts = artifacts
                 from synthstats.core.types import Reward
+
                 return Reward(total=1.0, components={}, info={})
 
         judge = ArtifactCapturingJudge()

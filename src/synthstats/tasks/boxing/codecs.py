@@ -37,9 +37,7 @@ class BoxingCodec:
                 pass
 
         # try submit_program format
-        program_match = re.search(
-            r"<submit_program>(.*?)</submit_program>", text, re.DOTALL
-        )
+        program_match = re.search(r"<submit_program>(.*?)</submit_program>", text, re.DOTALL)
         if program_match:
             code = program_match.group(1).strip()
             return Program(code=code, language="pymc")

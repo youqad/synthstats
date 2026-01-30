@@ -1,6 +1,5 @@
 """Tests for SkyRL text environment wrapper - WRITTEN FIRST per TDD."""
 
-
 from synthstats.core.types import FinalAnswer, Message, StepResult
 
 

@@ -137,9 +137,7 @@ class LLMCriticJudge:
             # API errors, missing keys, rate limits, etc.
             return None
 
-    def score(
-        self, *, task_name: str, trajectory: Trajectory, artifacts: dict[str, Any]
-    ) -> Reward:
+    def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict[str, Any]) -> Reward:
         """Score trajectory using LLM critique.
 
         Extracts program from artifacts, prompts LLM for critique,
@@ -194,12 +192,10 @@ class LLMCriticJudge:
 
         # average across samples
         avg_scores = {
-            "code_quality": sum(s["code_quality"] for s in all_scores)
-            / len(all_scores),
+            "code_quality": sum(s["code_quality"] for s in all_scores) / len(all_scores),
             "statistical_validity": sum(s["statistical_validity"] for s in all_scores)
             / len(all_scores),
-            "problem_alignment": sum(s["problem_alignment"] for s in all_scores)
-            / len(all_scores),
+            "problem_alignment": sum(s["problem_alignment"] for s in all_scores) / len(all_scores),
         }
 
         # total is mean of component scores

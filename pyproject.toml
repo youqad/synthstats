@@ -95,6 +95,7 @@ flash-attn = ["torch"]
 
 [project.scripts]
 synthstats = "synthstats.cli:main"
+synthstats-train = "synthstats.cli.train:main"
 
 [tool.setuptools.package-dir]
 "" = "src"

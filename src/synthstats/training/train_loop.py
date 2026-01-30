@@ -16,18 +16,31 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from synthstats.collectors.simple_collector import (
+    CollectedTrajectory,
     SimpleCollector,
     build_subtb_batch,
     build_tinker_batch,
 )
 from synthstats.envs.skyrl_text_env import SynthStatsTextEnv
+from synthstats.train.loop.replay import GFNReplayBuffer, ReplayBuffer
 from synthstats.trainers.skyrl_subtb import SkyRLSubTBTrainer
-from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
-from synthstats.training.buffers.replay import ReplayBuffer
+from synthstats.training.checkpointing import (
+    CheckpointState,
+    cleanup_old_checkpoints,
+    get_rng_states,
+    set_rng_states,
+)
+from synthstats.training.checkpointing import (
+    load_checkpoint as _load_checkpoint,
+)
+from synthstats.training.checkpointing import (
+    save_checkpoint as _save_checkpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +131,7 @@ class TrainingLoop:
                 )
 
     @staticmethod
-    def _ensure_ref_policy_compat(
-        policy: Any, ref_policy: Any, *, allow_mismatch: bool
-    ) -> None:
+    def _ensure_ref_policy_compat(policy: Any, ref_policy: Any, *, allow_mismatch: bool) -> None:
         """Ensure reference policy tokenization matches behavior policy."""
         if allow_mismatch:
             return
@@ -132,9 +143,7 @@ class TrainingLoop:
 
         mismatches: list[str] = []
         if tok.__class__ is not ref_tok.__class__:
-            mismatches.append(
-                f"class {tok.__class__.__name__} != {ref_tok.__class__.__name__}"
-            )
+            mismatches.append(f"class {tok.__class__.__name__} != {ref_tok.__class__.__name__}")
 
         name = getattr(tok, "name_or_path", None)
         ref_name = getattr(ref_tok, "name_or_path", None)
@@ -145,9 +154,7 @@ class TrainingLoop:
         ref_vocab_size = getattr(ref_tok, "vocab_size", None)
         if vocab_size is not None and ref_vocab_size is not None:
             if int(vocab_size) != int(ref_vocab_size):
-                mismatches.append(
-                    f"vocab_size {vocab_size} != {ref_vocab_size}"
-                )
+                mismatches.append(f"vocab_size {vocab_size} != {ref_vocab_size}")
 
         if mismatches:
             details = "; ".join(mismatches)
@@ -202,9 +209,7 @@ class TrainingLoop:
             score_fn = ref_policy.score_action
 
         if use_ref_policy and score_fn is None:
-            raise ValueError(
-                "use_ref_policy=True requires a ref_policy with score_action"
-            )
+            raise ValueError("use_ref_policy=True requires a ref_policy with score_action")
         if use_ref_policy and ref_policy is not None:
             allow_mismatch = getattr(trainer.config, "allow_mismatched_tokenizer", False)
             self._ensure_ref_policy_compat(
@@ -242,8 +247,7 @@ class TrainingLoop:
             and len(self._gfn_replay_buffer) >= self.config.batch_size
         )
         has_simple_buffer = (
-            self._replay_buffer is not None
-            and len(self._replay_buffer) >= self.config.batch_size
+            self._replay_buffer is not None and len(self._replay_buffer) >= self.config.batch_size
         )
 
         # determine fresh vs replay split
@@ -285,10 +289,34 @@ class TrainingLoop:
         # combine trajectories
         trajectories = fresh_trajectories + replay_trajectories
 
+        # strip eos_logprobs when mixing with replay (replay can't provide them)
+        # this falls back to vanilla TB instead of modified_subtb
+        if replay_trajectories and any(
+            getattr(t, "eos_logprobs", None) is not None for t in fresh_trajectories
+        ):
+            logger.warning(
+                "Mixing replay trajectories with fresh - stripping eos_logprobs, "
+                "falling back to vanilla TB loss instead of modified_subtb"
+            )
+            trajectories = [
+                CollectedTrajectory(
+                    observations=t.observations,
+                    actions=t.actions,
+                    log_probs=t.log_probs,
+                    ref_log_probs=t.ref_log_probs,
+                    entropy=t.entropy,
+                    reward=t.reward,
+                    temperature=t.temperature,
+                    eos_logprobs=None,  # strip for consistency
+                    prompts=getattr(t, "prompts", None),
+                    completions=getattr(t, "completions", None),
+                )
+                for t in trajectories
+            ]
+
         # build batch - use appropriate builder for trainer type
         is_tinker = (
-            hasattr(self.trainer, "__class__")
-            and "Tinker" in self.trainer.__class__.__name__
+            hasattr(self.trainer, "__class__") and "Tinker" in self.trainer.__class__.__name__
         )
         if is_tinker:
             batch = build_tinker_batch(
@@ -396,3 +424,177 @@ class TrainingLoop:
     def metrics_history(self) -> list[dict[str, float]]:
         """All metrics collected during training."""
         return self._all_metrics
+
+    def save_checkpoint(
+        self,
+        path: str | Path,
+        keep_last_n: int | None = None,
+    ) -> Path:
+        """Save complete training state to checkpoint file.
+
+        Captures:
+        - Step count and metrics history
+        - Trainer state (logZ, config)
+        - Optimizer state
+        - RNG states for reproducibility
+        - Replay buffer contents (if enabled)
+        - Policy model state (if available)
+
+        Args:
+            path: Path to save checkpoint file
+            keep_last_n: If set, remove old checkpoints keeping only N most recent
+
+        Returns:
+            Path to saved checkpoint
+        """
+        if self.trainer is None:
+            raise RuntimeError("Call setup() before save_checkpoint()")
+
+        path = Path(path)
+
+        # collect model state if policy has a model
+        model_state_dict = None
+        if self.policy is not None and hasattr(self.policy, "model"):
+            model = self.policy.model
+            if hasattr(model, "state_dict"):
+                model_state_dict = model.state_dict()
+
+        # collect optimizer state
+        optimizer_state_dict = None
+        if self.trainer.optimizer is not None:
+            optimizer_state_dict = self.trainer.optimizer.state_dict()
+
+        # collect replay buffer state
+        replay_buffer_state = None
+        if self._gfn_replay_buffer is not None:
+            replay_buffer_state = self._gfn_replay_buffer.state_dict()
+        elif self._replay_buffer is not None:
+            replay_buffer_state = self._replay_buffer.state_dict()
+
+        state = CheckpointState(
+            step_count=self.step_count,
+            logZ=self.trainer.logZ.item(),
+            model_state_dict=model_state_dict,
+            optimizer_state_dict=optimizer_state_dict,
+            rng_states=get_rng_states(),
+            replay_buffer=replay_buffer_state,
+            config=asdict(self.config),
+            metrics_history=self._all_metrics.copy(),
+        )
+
+        _save_checkpoint(path, state)
+
+        # cleanup old checkpoints if requested
+        if keep_last_n is not None and keep_last_n > 0:
+            cleanup_old_checkpoints(path.parent, keep_last_n)
+
+        return path
+
+    def load_checkpoint(self, path: str | Path) -> None:
+        """Resume training from checkpoint file.
+
+        Restores:
+        - Step count and metrics history
+        - Trainer state (logZ)
+        - Optimizer state
+        - RNG states
+        - Replay buffer contents (if present)
+        - Policy model state (if present)
+
+        Args:
+            path: Path to checkpoint file
+
+        Raises:
+            RuntimeError: If setup() hasn't been called
+            FileNotFoundError: If checkpoint doesn't exist
+        """
+        if self.trainer is None:
+            raise RuntimeError("Call setup() before load_checkpoint()")
+
+        state = _load_checkpoint(Path(path))
+        self._restore_from_state(state)
+
+    def _restore_from_state(self, state: CheckpointState) -> None:
+        """Restore training state from CheckpointState object.
+
+        Internal method used by both load_checkpoint and from_checkpoint.
+        """
+        # restore step count and metrics
+        self.step_count = state.step_count
+        self._all_metrics = state.metrics_history.copy()
+
+        # restore trainer state
+        self.trainer.load_state_dict({"logZ": state.logZ, "config": state.config})
+
+        # restore optimizer state
+        if state.optimizer_state_dict is not None and self.trainer.optimizer is not None:
+            self.trainer.optimizer.load_state_dict(state.optimizer_state_dict)
+
+        # restore RNG states
+        set_rng_states(state.rng_states)
+
+        # restore replay buffer
+        if state.replay_buffer is not None:
+            if self._gfn_replay_buffer is not None:
+                self._gfn_replay_buffer.load_state_dict(state.replay_buffer)
+            elif self._replay_buffer is not None:
+                self._replay_buffer.load_state_dict(state.replay_buffer)
+
+        # restore model state
+        if state.model_state_dict is not None and self.policy is not None:
+            if hasattr(self.policy, "model") and hasattr(self.policy.model, "load_state_dict"):
+                self.policy.model.load_state_dict(state.model_state_dict)
+
+        logger.info(f"Restored training state from step {state.step_count}")
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        path: str | Path,
+        policy: Any,
+        trainer: SkyRLSubTBTrainer,
+        env: SynthStatsTextEnv,
+        ref_policy: Any | None = None,
+        log_callback: Callable[[dict, int], None] | None = None,
+    ) -> TrainingLoop:
+        """Create TrainingLoop and restore from checkpoint.
+
+        Factory method that:
+        1. Loads checkpoint to get config
+        2. Creates TrainingLoop with restored config
+        3. Calls setup() with provided components
+        4. Restores full checkpoint state
+
+        Args:
+            path: Path to checkpoint file
+            policy: Policy for action generation
+            trainer: SkyRLSubTBTrainer for loss computation
+            env: SynthStatsTextEnv environment
+            ref_policy: Optional reference policy
+            log_callback: Optional logging callback
+
+        Returns:
+            TrainingLoop ready to resume training
+        """
+        # load checkpoint once
+        state = _load_checkpoint(Path(path))
+
+        # recreate config from checkpoint
+        config = TrainingConfig(**state.config)
+
+        # create loop with restored config
+        loop = cls(config=config)
+
+        # setup components
+        loop.setup(
+            policy=policy,
+            trainer=trainer,
+            env=env,
+            ref_policy=ref_policy,
+            log_callback=log_callback,
+        )
+
+        # restore state without re-loading file
+        loop._restore_from_state(state)
+
+        return loop

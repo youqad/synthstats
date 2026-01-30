@@ -196,9 +196,7 @@ class DriverGFNReplayBuffer:
             return {"mean_staleness": 0.0, "max_staleness": 0}
 
         current_version = self.policy_version  # thread-safe access
-        staleness = [
-            current_version - e.policy_version for e in self._buffer
-        ]
+        staleness = [current_version - e.policy_version for e in self._buffer]
         return {
             "mean_staleness": sum(staleness) / len(staleness),
             "max_staleness": max(staleness),

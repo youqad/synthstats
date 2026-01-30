@@ -35,6 +35,7 @@ class TestGFlowNetExpHelpers:
         exp = object.__new__(GFlowNetExp)
         # mock PromptDataset since skyrl may not be installed
         import sys
+
         mock_skyrl = MagicMock()
         mock_skyrl.data.prompt_dataset.PromptDataset = lambda prompts: prompts
         sys.modules["skyrl_train"] = mock_skyrl
@@ -54,8 +55,9 @@ class TestGFlowNetExpHelpers:
 
     def test_load_prompt_file(self, tmp_path) -> None:
         """Loads prompts from text file."""
-        from synthstats.distributed.gfn_exp import GFlowNetExp
         import sys
+
+        from synthstats.distributed.gfn_exp import GFlowNetExp
 
         prompt_file = tmp_path / "prompts.txt"
         prompt_file.write_text("prompt one\nprompt two\n\nprompt three\n")
@@ -77,8 +79,9 @@ class TestGFlowNetExpHelpers:
 
     def test_load_prompt_file_missing(self, tmp_path) -> None:
         """Falls back to placeholders for missing file."""
-        from synthstats.distributed.gfn_exp import GFlowNetExp
         import sys
+
+        from synthstats.distributed.gfn_exp import GFlowNetExp
 
         mock_skyrl = MagicMock()
         mock_skyrl.data.prompt_dataset.PromptDataset = lambda prompts: prompts
@@ -99,6 +102,7 @@ class TestGFlowNetExpHelpers:
     def test_no_task_imports_in_module(self) -> None:
         """gfn_exp.py must not import task plugins (dependency inversion)."""
         import inspect
+
         from synthstats.distributed import gfn_exp
 
         source = inspect.getsource(gfn_exp)

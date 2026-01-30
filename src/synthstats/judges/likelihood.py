@@ -25,9 +25,7 @@ class LikelihoodJudge:
         clip_range: (min, max) for log_reward before exp. Prevents overflow.
     """
 
-    def __init__(
-        self, beta: float = 0.1, clip_range: tuple[float, float] = (-700, 700)
-    ):
+    def __init__(self, beta: float = 0.1, clip_range: tuple[float, float] = (-700, 700)):
         self.beta = beta
         self.clip_range = clip_range
 
@@ -44,16 +42,13 @@ class LikelihoodJudge:
             import arviz as az
         except ImportError as e:
             raise ImportError(
-                "ArviZ required for ELPD-LOO computation. "
-                "Install with: pip install arviz"
+                "ArviZ required for ELPD-LOO computation. Install with: pip install arviz"
             ) from e
 
         loo_result = az.loo(idata, pointwise=True)
         return float(loo_result.elpd_loo)
 
-    def score(
-        self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-    ) -> Reward:
+    def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
         """Compute reward from ELPD.
 
         Checks for:

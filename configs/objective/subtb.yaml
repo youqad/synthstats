@@ -1,0 +1,13 @@
+beta: 1.0
+loss_type: tb  # tb | modified_subtb
+subtb_lambda: 0.9
+tb_max_residual: 100.0
+
+logZ_init: 0.0
+
+ref_policy:
+  enabled: false
+  weight: 1.0
+  normalize_by_length: false
+
+entropy_coef: 0.01

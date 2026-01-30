@@ -160,10 +160,7 @@ def _execute_tool(
     if executor is None:
         available = list(executors.keys())
         return ToolResult(
-            output=(
-                f"Error: Unknown tool '{action.name}'. "
-                f"Available tools: {available}"
-            ),
+            output=(f"Error: Unknown tool '{action.name}'. Available tools: {available}"),
             success=False,
             error=f"Unknown tool: {action.name}",
         )

@@ -32,6 +32,7 @@ class TestHFPolicyConfig:
         import inspect
 
         from synthstats.policies.hf_policy import HFPolicy
+
         sig = inspect.signature(HFPolicy.__init__)
         params = sig.parameters
         assert "model_name" in params

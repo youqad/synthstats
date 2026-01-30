@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 import torch
 
 
@@ -42,7 +42,6 @@ class TestGFlowNetExpIntegration:
         """BoxingTask can be created for prompt generation."""
         # import directly without SkyRL
         import sys
-        from synthstats.distributed.gfn_exp import GFlowNetExp
 
         # mock SkyRL imports for this test
         with patch.dict(sys.modules, {"skyrl_train.entrypoints.main_base": MagicMock()}):
@@ -50,6 +49,7 @@ class TestGFlowNetExpIntegration:
             class MockExp:
                 def _create_boxing_task(self, env_name, max_steps=10):
                     from synthstats.tasks.boxing.task import BoxingTask
+
                     return BoxingTask(env_name=env_name, max_steps=max_steps)
 
             exp = MockExp()
@@ -123,7 +123,7 @@ class TestTrainerIntegration:
     @pytest.fixture
     def trainer_with_mock_model(self):
         """Trainer with a mock model for testing."""
-        from synthstats.distributed.gfn_trainer import GFlowNetTrainer, GFNConfig
+        from synthstats.distributed.gfn_trainer import GFlowNetTrainer
 
         cfg = MagicMock()
         cfg.gfn = {
@@ -148,7 +148,7 @@ class TestTrainerIntegration:
                 # trainable param that affects output (ensures gradients flow)
                 self.logit_bias = torch.nn.Parameter(torch.zeros(V))
                 self.logit_bias.data[0] = 10.0  # token 0 most likely
-                self.logit_bias.data[2] = 5.0   # EOS token
+                self.logit_bias.data[2] = 5.0  # EOS token
 
             def forward(self, input_ids, attention_mask=None):
                 B, L = input_ids.shape
@@ -166,8 +166,10 @@ class TestTrainerIntegration:
         trainer.policy_model = mock_model
         # include model params in optimizer for gradient flow
         trainer.optimizer = torch.optim.Adam(
-            [{"params": [trainer.logZ], "lr": 0.01},
-             {"params": mock_model.parameters(), "lr": 1e-4}]
+            [
+                {"params": [trainer.logZ], "lr": 0.01},
+                {"params": mock_model.parameters(), "lr": 1e-4},
+            ]
         )
 
         return trainer
@@ -216,8 +218,8 @@ class TestTrainerIntegration:
         input_ids = [
             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             [1, 2, 3, 11, 12, 13, 14, 15, 16, 17],  # different response
-            [1, 2, 3, 4, 20, 21, 22, 23, 24, 25],   # different response
-            [1, 2, 3, 4, 5, 30, 31, 32, 33, 34],    # different response
+            [1, 2, 3, 4, 20, 21, 22, 23, 24, 25],  # different response
+            [1, 2, 3, 4, 5, 30, 31, 32, 33, 34],  # different response
         ]
         prompt_lengths = [3, 3, 4, 4]
         log_rewards = [-0.5, -0.3, -0.4, -0.2]
@@ -314,8 +316,8 @@ class TestEndToEndPipeline:
 
     def test_task_to_prompt_to_training(self) -> None:
         """Full pipeline: task -> prompts -> tokenization -> training."""
-        from synthstats.tasks.boxing.task import BoxingTask
         from synthstats.distributed.gfn_trainer import GFlowNetTrainer
+        from synthstats.tasks.boxing.task import BoxingTask
 
         # 1. Create task and generate prompt
         task = BoxingTask(env_name="dugongs", max_steps=5)
@@ -353,7 +355,7 @@ class TestEndToEndPipeline:
 
     @pytest.mark.skipif(
         True,  # skip by default - requires full SkyRL
-        reason="Full SkyRL integration test - requires skyrl-train"
+        reason="Full SkyRL integration test - requires skyrl-train",
     )
     def test_full_skyrl_integration(self) -> None:
         """Full integration with SkyRL (skipped unless explicitly enabled)."""

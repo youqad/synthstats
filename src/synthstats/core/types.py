@@ -20,6 +20,17 @@ class Message:
     content: str
     tool_call_id: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dict."""
+        return {"role": self.role, "content": self.content, "tool_call_id": self.tool_call_id}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Message":
+        """Deserialize from dict."""
+        return cls(
+            role=data["role"], content=data["content"], tool_call_id=data.get("tool_call_id")
+        )
+
 
 @dataclass
 class Action:
@@ -69,6 +80,15 @@ class Reward:
     components: dict[str, float]
     info: dict[str, Any]
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dict."""
+        return {"total": self.total, "components": self.components, "info": self.info}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Reward":
+        """Deserialize from dict."""
+        return cls(total=data["total"], components=data["components"], info=data["info"])
+
 
 @dataclass
 class Trajectory:
@@ -97,3 +117,26 @@ class Trajectory:
     # SubTB: EOS log probabilities for flow matching at sub-trajectory endpoints
     # Optional for backward compatibility with vanilla TB
     eos_logprobs: list[list[float]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dict."""
+        return {
+            "messages": [m.to_dict() for m in self.messages],
+            "token_ids": self.token_ids,
+            "token_logprobs": self.token_logprobs,
+            "loss_mask": self.loss_mask,
+            "reward": self.reward.to_dict(),
+            "eos_logprobs": self.eos_logprobs,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Trajectory":
+        """Deserialize from dict."""
+        return cls(
+            messages=[Message.from_dict(m) for m in data["messages"]],
+            token_ids=data["token_ids"],
+            token_logprobs=data["token_logprobs"],
+            loss_mask=data["loss_mask"],
+            reward=Reward.from_dict(data["reward"]),
+            eos_logprobs=data.get("eos_logprobs", []),
+        )

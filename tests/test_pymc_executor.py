@@ -672,9 +672,7 @@ class TestPyMCExecutorFileIOBypass:
             name="pymc",
             input={
                 "code": (
-                    "import numpy as np\n"
-                    "arr = np.array([1,2,3])\n"
-                    "np.save('/tmp/data.npy', arr)"
+                    "import numpy as np\narr = np.array([1,2,3])\nnp.save('/tmp/data.npy', arr)"
                 )
             },
             raw="",
@@ -752,11 +750,7 @@ class TestPyMCExecutorFileIOBypass:
         action = ToolCall(
             name="pymc",
             input={
-                "code": (
-                    "import pandas as pd\n"
-                    "df = pd.DataFrame({'a': [1,2,3]})\n"
-                    "print(df.sum())"
-                )
+                "code": ("import pandas as pd\ndf = pd.DataFrame({'a': [1,2,3]})\nprint(df.sum())")
             },
             raw="",
         )

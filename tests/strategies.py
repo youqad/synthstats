@@ -8,7 +8,7 @@ import torch
 from hypothesis import strategies as st
 
 from synthstats.core.types import FinalAnswer, Message, Program, Reward, ToolCall, Trajectory
-from synthstats.training.buffers.gfn_replay import BufferEntry
+from synthstats.training.buffers import BufferEntry
 
 
 @st.composite
@@ -164,9 +164,7 @@ def st_trajectory(
 @st.composite
 def st_action_dict(draw: st.DrawFn) -> dict[str, Any]:
     """Generate a valid action dictionary."""
-    action_type = draw(
-        st.sampled_from(["query", "compute_eig", "submit_program", "answer"])
-    )
+    action_type = draw(st.sampled_from(["query", "compute_eig", "submit_program", "answer"]))
     payload = draw(
         st.text(
             min_size=0,
@@ -220,6 +218,7 @@ def st_buffer_entry(draw: st.DrawFn) -> BufferEntry:
 
 
 # action type strategies for codec tests
+
 
 @st.composite
 def st_final_answer(draw: st.DrawFn) -> FinalAnswer:

@@ -1,0 +1,18 @@
+# Qwen3-4B-Instruct HuggingFace Policy
+#
+# Production model with July 2025 improvements.
+# 4B params, 262K context.
+
+model_name: Qwen/Qwen3-4B-Instruct-2507
+device: ${device}
+dtype: bfloat16
+
+generation:
+  max_new_tokens: 300
+  temperature: 0.7
+
+training:
+  require_grad_logp: false
+
+lora: null
+gradient_checkpointing: false

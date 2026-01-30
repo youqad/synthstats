@@ -36,8 +36,7 @@ class GFlowNetExp(BasePPOExp):  # type: ignore[misc]
     def __init__(self, cfg: DictConfig) -> None:
         if not SKYRL_AVAILABLE:
             raise ImportError(
-                "SkyRL is required for GFlowNetExp. "
-                "Install with: pip install skyrl-train"
+                "SkyRL is required for GFlowNetExp. Install with: pip install skyrl-train"
             )
 
         # validate GFN config exists
@@ -140,11 +139,7 @@ class GFlowNetExp(BasePPOExp):  # type: ignore[misc]
             return self._load_prompt_file(prompt_file)
 
         # no task-specific prompts configured — use placeholders
-        num_prompts = (
-            task_cfg.get("num_prompts", 100)
-            if hasattr(task_cfg, "get")
-            else 100
-        )
+        num_prompts = task_cfg.get("num_prompts", 100) if hasattr(task_cfg, "get") else 100
         logger.warning(
             "No prompt source configured (data.train_files or task.prompt_file). "
             "Using generic placeholders. Generate task prompts via the script layer."
@@ -191,15 +186,13 @@ class GFlowNetExp(BasePPOExp):  # type: ignore[misc]
         from skyrl_train.data.prompt_dataset import PromptDataset
 
         prompts = [
-            f"Generate a PyMC program to model the data. [seed={i}]"
-            for i in range(num_prompts)
+            f"Generate a PyMC program to model the data. [seed={i}]" for i in range(num_prompts)
         ]
         return PromptDataset(prompts)
 
 
 def main() -> None:
     import hydra
-    from omegaconf import DictConfig
 
     @hydra.main(
         config_path="../../configs",

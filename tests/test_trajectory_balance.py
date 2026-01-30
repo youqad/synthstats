@@ -19,14 +19,18 @@ class TestTBIdentityAdvantageEstimator:
     def test_sums_rewards_per_trajectory(self):
         """Should sum token-level rewards to get trajectory reward."""
         # rewards only at final token (typical for GFlowNets)
-        token_rewards = torch.tensor([
-            [0.0, 0.0, 0.0, 2.0],  # trajectory 1: reward = 2.0
-            [0.0, 0.0, 1.5, 0.0],  # trajectory 2: reward = 1.5
-        ])
-        mask = torch.tensor([
-            [1.0, 1.0, 1.0, 1.0],
-            [1.0, 1.0, 1.0, 0.0],  # last token masked out
-        ])
+        token_rewards = torch.tensor(
+            [
+                [0.0, 0.0, 0.0, 2.0],  # trajectory 1: reward = 2.0
+                [0.0, 0.0, 1.5, 0.0],  # trajectory 2: reward = 1.5
+            ]
+        )
+        mask = torch.tensor(
+            [
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 0.0],  # last token masked out
+            ]
+        )
 
         advantages, returns = compute_tb_identity_advantage(token_rewards, mask)
 
@@ -95,14 +99,18 @@ class TestTrajectoryBalanceLoss:
 
     def test_computes_squared_residual(self):
         """TB loss should be (logZ + log_pi - log_R)^2."""
-        log_probs = torch.tensor([
-            [-1.0, -1.0, -1.0],  # sum = -3
-            [-0.5, -0.5, -0.5],  # sum = -1.5
-        ])
-        advantages = torch.tensor([  # actually log_rewards from tb_identity
-            [2.0, 2.0, 2.0],  # log_R = 2.0 (broadcast)
-            [1.0, 1.0, 1.0],  # log_R = 1.0 (broadcast)
-        ])
+        log_probs = torch.tensor(
+            [
+                [-1.0, -1.0, -1.0],  # sum = -3
+                [-0.5, -0.5, -0.5],  # sum = -1.5
+            ]
+        )
+        advantages = torch.tensor(
+            [  # actually log_rewards from tb_identity
+                [2.0, 2.0, 2.0],  # log_R = 2.0 (broadcast)
+                [1.0, 1.0, 1.0],  # log_R = 1.0 (broadcast)
+            ]
+        )
         loss_mask = torch.ones(2, 3)
 
         config = {"logZ": 0.5, "tb_max_residual": 100.0}
@@ -127,9 +135,7 @@ class TestTrajectoryBalanceLoss:
         config = {"tb_max_residual": 100.0}  # missing logZ!
 
         with pytest.raises(RuntimeError, match="logZ not found"):
-            compute_trajectory_balance_loss(
-                log_probs, log_probs, advantages, config
-            )
+            compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
 
     def test_clamps_residual(self):
         """Should clamp residual to prevent extreme values."""
@@ -137,9 +143,7 @@ class TestTrajectoryBalanceLoss:
         advantages = torch.tensor([[1000.0]])  # extreme positive
         config = {"logZ": 0.0, "tb_max_residual": 50.0}
 
-        loss, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
 
         # residual would be 0 - 1000 - 1000 = -2000, clamped to -50
         # loss = 50^2 = 2500
@@ -148,12 +152,10 @@ class TestTrajectoryBalanceLoss:
     def test_handles_nan_in_rewards(self):
         """Should replace NaN rewards with -max_residual."""
         log_probs = torch.tensor([[-1.0, -1.0]])
-        advantages = torch.tensor([[float('nan'), float('nan')]])
+        advantages = torch.tensor([[float("nan"), float("nan")]])
         config = {"logZ": 0.0, "tb_max_residual": 100.0}
 
-        loss, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
 
         # should not be NaN
         assert not torch.isnan(loss)
@@ -162,12 +164,10 @@ class TestTrajectoryBalanceLoss:
     def test_handles_inf_in_rewards(self):
         """Should replace inf rewards with -max_residual."""
         log_probs = torch.tensor([[-1.0, -1.0]])
-        advantages = torch.tensor([[float('inf'), float('inf')]])
+        advantages = torch.tensor([[float("inf"), float("inf")]])
         config = {"logZ": 0.0, "tb_max_residual": 100.0}
 
-        loss, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
 
         # should not be inf
         assert not torch.isinf(loss)
@@ -187,9 +187,11 @@ class TestTrajectoryBalanceLoss:
 
     def test_respects_mask(self):
         """Should only sum log_probs at masked positions."""
-        log_probs = torch.tensor([
-            [-1.0, -1.0, -999.0],  # last should be ignored
-        ])
+        log_probs = torch.tensor(
+            [
+                [-1.0, -1.0, -999.0],  # last should be ignored
+            ]
+        )
         advantages = torch.tensor([[1.0, 1.0, 1.0]])
         loss_mask = torch.tensor([[1.0, 1.0, 0.0]])  # mask out last
         config = {"logZ": 0.0}
@@ -211,16 +213,13 @@ class TestTrajectoryBalanceLoss:
         advantages = torch.randn(2, 5)
 
         # plain dict
-        loss1, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, {"logZ": 0.5}
-        )
+        loss1, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, {"logZ": 0.5})
 
         # omegaconf DictConfig
         from omegaconf import DictConfig
+
         cfg = DictConfig({"logZ": 0.5})
-        loss2, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, cfg
-        )
+        loss2, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, cfg)
 
         # should give same result
         assert torch.isclose(loss1, loss2)
@@ -346,14 +345,18 @@ class TestEndToEndTBLoss:
     def test_full_tb_pipeline(self):
         """Test complete TB training pipeline."""
         # simulate rewards from environment
-        raw_rewards = torch.tensor([
-            [0.0, 0.0, 0.0, 10.0],  # reward at final token
-            [0.0, 0.0, 5.0, 0.0],
-        ])
-        response_mask = torch.tensor([
-            [1.0, 1.0, 1.0, 1.0],
-            [1.0, 1.0, 1.0, 0.0],
-        ])
+        raw_rewards = torch.tensor(
+            [
+                [0.0, 0.0, 0.0, 10.0],  # reward at final token
+                [0.0, 0.0, 5.0, 0.0],
+            ]
+        )
+        response_mask = torch.tensor(
+            [
+                [1.0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0, 0.0],
+            ]
+        )
 
         # step 1: tb_identity converts to advantages
         advantages, _ = compute_tb_identity_advantage(raw_rewards, response_mask)
@@ -377,9 +380,7 @@ class TestEndToEndTBLoss:
         advantages = torch.randn(2, 5)  # from tb_identity (no grad)
         config = {"logZ": 0.0}
 
-        loss, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
         loss.backward()
 
         assert log_probs.grad is not None
@@ -410,9 +411,7 @@ class TestEndToEndTBLoss:
 
         config = ConfigWithTensor()
 
-        loss, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
         loss.backward()
 
         # logZ should have gradients if tensor was used

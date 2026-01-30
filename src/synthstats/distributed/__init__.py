@@ -45,10 +45,10 @@ from synthstats.distributed.driver_replay_buffer import (
     DriverGFNReplayBuffer,
 )
 from synthstats.distributed.scoring import (
+    STOP_TOKEN_IDS,
     build_response_mask,
     compute_log_probs_with_eos,
     get_stop_token_ids,
-    STOP_TOKEN_IDS,
 )
 
 __all__ = [
@@ -64,22 +64,20 @@ __all__ = [
 
 # export trainer components (work without SkyRL)
 try:
-    from synthstats.distributed.gfn_trainer import (
+    from synthstats.distributed.gfn_trainer import (  # noqa: F401
         GFlowNetTrainer,
-        GFNConfig,
         GFNBatch,
+        GFNConfig,
     )
 
     __all__.extend(["GFlowNetTrainer", "GFNConfig", "GFNBatch"])
 except ImportError:
-    # minimal dependencies not available
     pass
 
 # export experiment class (requires SkyRL)
 try:
-    from synthstats.distributed.gfn_exp import GFlowNetExp
+    from synthstats.distributed.gfn_exp import GFlowNetExp  # noqa: F401
 
     __all__.append("GFlowNetExp")
 except ImportError:
-    # SkyRL not available
     pass

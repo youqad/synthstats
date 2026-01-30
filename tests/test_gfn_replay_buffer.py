@@ -34,7 +34,7 @@ class TestBufferEntry:
 
     def test_buffer_entry_creation(self):
         """BufferEntry stores actions and observations without tensors."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry
+        from synthstats.training.buffers import BufferEntry
 
         entry = BufferEntry(
             actions=[{"type": "query", "payload": "x"}, {"type": "answer", "payload": "42"}],
@@ -52,7 +52,7 @@ class TestBufferEntry:
 
     def test_buffer_entry_has_timestamp(self):
         """BufferEntry auto-populates timestamp."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry
+        from synthstats.training.buffers import BufferEntry
 
         entry = BufferEntry(
             actions=[{}],
@@ -63,7 +63,7 @@ class TestBufferEntry:
 
     def test_buffer_entry_default_values(self):
         """BufferEntry has sensible defaults."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry
+        from synthstats.training.buffers import BufferEntry
 
         entry = BufferEntry(
             actions=[{"type": "answer"}],
@@ -80,13 +80,13 @@ class TestGFNReplayBufferBasics:
 
     def test_buffer_import(self):
         """GFNReplayBuffer should be importable."""
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         assert GFNReplayBuffer is not None
 
     def test_buffer_add_and_len(self):
         """GFNReplayBuffer tracks size correctly."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry, GFNReplayBuffer
+        from synthstats.training.buffers import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         assert len(buffer) == 0
@@ -99,7 +99,7 @@ class TestGFNReplayBufferBasics:
 
     def test_buffer_capacity_eviction(self):
         """Oldest entries evicted when at capacity."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry, GFNReplayBuffer
+        from synthstats.training.buffers import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=3)
 
@@ -121,7 +121,7 @@ class TestGFNReplayBufferBasics:
 
     def test_buffer_iteration(self):
         """Buffer supports iteration."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry, GFNReplayBuffer
+        from synthstats.training.buffers import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         buffer.add(BufferEntry(actions=[{}], log_reward=1.0, observations=["obs"]))
@@ -137,7 +137,7 @@ class TestGFNReplayBufferAddFromTrajectory:
     def test_add_from_trajectory_extracts_actions(self):
         """add_from_trajectory extracts actions without tensors."""
         # use MockTrajectory defined at top of file
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -159,7 +159,7 @@ class TestGFNReplayBufferAddFromTrajectory:
     def test_add_from_trajectory_stores_log_reward(self):
         """add_from_trajectory stores the provided log_reward."""
         # use MockTrajectory defined at top of file
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -180,7 +180,7 @@ class TestGFNReplayBufferAddFromTrajectory:
     def test_add_from_trajectory_stores_temperature(self):
         """add_from_trajectory stores temperature from trajectory."""
         # use MockTrajectory defined at top of file
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -204,14 +204,14 @@ class TestGFNReplayBufferPolicyVersion:
 
     def test_initial_policy_version(self):
         """Buffer starts with policy version 0."""
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         assert buffer._policy_version == 0
 
     def test_increment_policy_version(self):
         """increment_policy_version updates internal counter."""
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         buffer.increment_policy_version()
@@ -222,7 +222,7 @@ class TestGFNReplayBufferPolicyVersion:
     def test_entries_get_current_policy_version(self):
         """Entries are stamped with current policy version."""
         # use MockTrajectory defined at top of file
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -245,7 +245,7 @@ class TestGFNReplayBufferPolicyVersion:
     def test_staleness_stats(self):
         """get_staleness_stats returns version statistics."""
         # use MockTrajectory defined at top of file
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -270,7 +270,7 @@ class TestGFNReplayBufferPolicyVersion:
 
     def test_staleness_stats_empty_buffer(self):
         """get_staleness_stats handles empty buffer."""
-        from synthstats.training.buffers.gfn_replay import GFNReplayBuffer
+        from synthstats.training.buffers import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         stats = buffer.get_staleness_stats()
@@ -284,7 +284,7 @@ class TestGFNReplayBufferPrioritized:
 
     def test_prioritized_alpha_zero_is_uniform(self):
         """alpha=0 should give uniform sampling."""
-        from synthstats.training.buffers.gfn_replay import BufferEntry, GFNReplayBuffer
+        from synthstats.training.buffers import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10, prioritized=True, alpha=0.0)
 

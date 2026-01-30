@@ -1,0 +1,9 @@
+# Full State PyTorch Checkpoint
+#
+# Saves complete training state: policy, optimizer, RNG, replay buffer, step.
+# Use for local PyTorch training.
+
+save_dir: checkpoints
+every_steps: 100
+keep_last: 3
+resume_from: null

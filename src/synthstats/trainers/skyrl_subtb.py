@@ -6,7 +6,7 @@ Loss functions are registered with SkyRL for future BasePPOExp integration.
 Expects batches with keys:
 - log_probs: Tensor [B, T] or [B] (if pre-summed)
 - log_reward: Tensor [B]
-- mask: optional Tensor [B, T] (bool/int/float), True/1 for valid steps
+- loss_mask: optional Tensor [B, T] (bool/int/float), True/1 for valid steps
 - entropy: optional Tensor [B] or [B, T]
 - eos_logprobs: optional Tensor [B, T] for modified SubTB loss
 
@@ -19,7 +19,7 @@ Design decisions:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 import torch
@@ -53,6 +53,8 @@ class SubTBConfig:
     reward_temp_start: float = 1.0
     reward_temp_end: float = 0.7
     reward_temp_horizon: int = 200
+    # Gradient clipping
+    max_grad_norm: float | None = None  # e.g., 1.0 for clipping
 
 
 class SkyRLSubTBTrainer:
@@ -94,9 +96,7 @@ class SkyRLSubTBTrainer:
         self.optimizer = optimizer
 
         # learnable log partition function
-        self.logZ = nn.Parameter(
-            torch.tensor(self.config.logZ_init, device=device)
-        )
+        self.logZ = nn.Parameter(torch.tensor(self.config.logZ_init, device=device))
 
     def train_step(self, batch: dict[str, Any]) -> dict[str, float]:
         """Compute SubTB loss and optionally update parameters.
@@ -104,7 +104,7 @@ class SkyRLSubTBTrainer:
         Expected batch keys:
           - log_probs: Tensor [B, T] or [B]
           - log_reward: Tensor [B], log-transformed rewards
-          - mask: optional Tensor [B, T] (bool/int/float), True/1 for valid steps
+          - loss_mask: optional Tensor [B, T] (bool/int/float), True/1 for valid steps
           - entropy: optional Tensor [B] or [B, T]
           - ref_log_probs: optional Tensor [B, T] or [B]
           - eos_logprobs: optional Tensor [B, T], EOS log probs for modified SubTB
@@ -126,7 +126,7 @@ class SkyRLSubTBTrainer:
 
         log_probs: torch.Tensor = batch["log_probs"]
         log_reward: torch.Tensor = batch["log_reward"]
-        mask: torch.Tensor | None = batch.get("mask")
+        mask: torch.Tensor | None = batch.get("loss_mask")
         entropy: torch.Tensor | None = batch.get("entropy")
         ref_log_probs: torch.Tensor | None = batch.get("ref_log_probs")
         eos_logprobs: torch.Tensor | None = batch.get("eos_logprobs")
@@ -144,26 +144,19 @@ class SkyRLSubTBTrainer:
             log_probs_2d = log_probs
             mask_2d = mask if mask is not None else torch.ones_like(log_probs_2d, dtype=torch.bool)
         else:
-            raise ValueError(
-                f"log_probs must be 1D [B] or 2D [B, T], got shape {log_probs.shape}"
-            )
+            raise ValueError(f"log_probs must be 1D [B] or 2D [B, T], got shape {log_probs.shape}")
 
         if ref_log_probs is not None and not self.config.use_ref_policy:
-            raise ValueError(
-                "ref_log_probs provided but use_ref_policy=False in SubTBConfig"
-            )
+            raise ValueError("ref_log_probs provided but use_ref_policy=False in SubTBConfig")
         if self.config.use_ref_policy and ref_log_probs is None:
-            raise ValueError(
-                "use_ref_policy=True requires ref_log_probs in batch"
-            )
+            raise ValueError("use_ref_policy=True requires ref_log_probs in batch")
 
         # choose loss function based on config
-        use_modified_subtb = (
-            self.config.loss_type == "modified_subtb" and eos_logprobs is not None
-        )
+        use_modified_subtb = self.config.loss_type == "modified_subtb" and eos_logprobs is not None
 
         if self.config.loss_type == "modified_subtb" and eos_logprobs is None:
             import warnings
+
             warnings.warn(
                 "modified_subtb requires eos_logprobs; falling back to vanilla TB",
                 UserWarning,
@@ -176,6 +169,7 @@ class SkyRLSubTBTrainer:
                 "subtb_lambda": self.config.subtb_lambda,
                 "tb_max_residual": self.config.tb_max_residual,
             }
+
             class ConfigProxy:  # noqa: B903
                 def __init__(self, base_config: dict, eos: torch.Tensor) -> None:
                     self._base = base_config
@@ -250,6 +244,16 @@ class SkyRLSubTBTrainer:
         if self.optimizer is not None:
             self.optimizer.zero_grad(set_to_none=True)
             loss_tensor.backward()
+            # gradient clipping if configured
+            if self.config.max_grad_norm is not None:
+                params = [
+                    p
+                    for group in self.optimizer.param_groups
+                    for p in group["params"]
+                    if p.grad is not None
+                ]
+                if params:
+                    torch.nn.utils.clip_grad_norm_(params, self.config.max_grad_norm)
             self.optimizer.step()
 
         result = {
@@ -264,3 +268,16 @@ class SkyRLSubTBTrainer:
             result["loss_tensor"] = loss_tensor
 
         return result
+
+    def state_dict(self) -> dict[str, Any]:
+        """Serialize trainer state for checkpointing."""
+        return {
+            "logZ": self.logZ.detach().cpu().item(),
+            "config": asdict(self.config),
+            "device": self.device,
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore trainer state from checkpoint (logZ only)."""
+        with torch.no_grad():
+            self.logZ.fill_(state["logZ"])

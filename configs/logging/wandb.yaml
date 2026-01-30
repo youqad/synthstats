@@ -1,0 +1,4 @@
+_target_: synthstats.train.logging.wandb.WandbLogger
+project: synthstats
+entity: null
+tags: []

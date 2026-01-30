@@ -7,8 +7,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from synthstats.core.types import Message, Reward, Trajectory
-from synthstats.training.buffers.gfn_replay import BufferEntry, GFNReplayBuffer
-from synthstats.training.buffers.replay import ReplayBuffer
+from synthstats.training.buffers import BufferEntry, GFNReplayBuffer, ReplayBuffer
 
 
 def make_trajectory(reward_total: float = 0.5) -> Trajectory:
@@ -48,9 +47,7 @@ class TestReplayBufferProperties:
         for i in range(n_adds):
             buffer.add(make_trajectory(reward_total=float(i)))
 
-        assert len(buffer) <= capacity, (
-            f"Buffer size {len(buffer)} exceeds capacity {capacity}"
-        )
+        assert len(buffer) <= capacity, f"Buffer size {len(buffer)} exceeds capacity {capacity}"
 
     @given(
         capacity=st.integers(min_value=2, max_value=20),

@@ -1,0 +1,6 @@
+# Qwen3-1.7B - sweet spot for full fine-tuning on single GPU
+# 1.7B params (1.4B non-embedding), 28 layers, 32K context
+# Performs like Qwen2.5-3B, supports thinking mode + tool use
+name: Qwen/Qwen3-1.7B
+dtype: bfloat16
+device: ${device}

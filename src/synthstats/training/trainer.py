@@ -16,7 +16,7 @@ import torch.nn as nn
 from synthstats.core.types import Message, Reward, StepResult, Trajectory
 from synthstats.runtime.codecs import ActionCodec
 from synthstats.runtime.rollout import RolloutConfig, rollout_episode
-from synthstats.training.buffers.replay import ReplayBuffer
+from synthstats.training.buffers import ReplayBuffer
 from synthstats.training.losses.tb_loss import subtb_loss
 
 
@@ -91,9 +91,7 @@ class ToyJudge:
     Returns fixed positive reward.
     """
 
-    def score(
-        self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-    ) -> Reward:
+    def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
         return Reward(
             total=1.0,
             components={"base": 1.0},
@@ -157,9 +155,7 @@ class Trainer:
             try:
                 policy_params = list(self.policy.parameters())
                 if policy_params:
-                    param_groups.append(
-                        {"params": policy_params, "lr": config.learning_rate}
-                    )
+                    param_groups.append({"params": policy_params, "lr": config.learning_rate})
             except Exception:
                 # policy.parameters() may fail for some policy types
                 pass
@@ -196,9 +192,7 @@ class Trainer:
 
         return trajectories
 
-    def _recompute_logprobs_differentiable(
-        self, traj: Trajectory
-    ) -> list[torch.Tensor]:
+    def _recompute_logprobs_differentiable(self, traj: Trajectory) -> list[torch.Tensor]:
         """Recompute logprobs with gradient tracking for training.
 
         For single-generation trajectories, uses all non-assistant messages as context.
@@ -210,9 +204,7 @@ class Trainer:
         result = []
 
         # find assistant message indices to reconstruct context
-        assistant_indices = [
-            i for i, m in enumerate(traj.messages) if m.role == "assistant"
-        ]
+        assistant_indices = [i for i, m in enumerate(traj.messages) if m.role == "assistant"]
 
         for gen_idx, token_ids in enumerate(traj.token_ids):
             if not token_ids:
@@ -226,15 +218,11 @@ class Trainer:
                 # fallback: use all non-assistant messages
                 context_end = len(traj.messages)
 
-            context_messages = [
-                m for m in traj.messages[:context_end] if m.role != "assistant"
-            ]
+            context_messages = [m for m in traj.messages[:context_end] if m.role != "assistant"]
 
             # if no context, use first system/user messages
             if not context_messages:
-                context_messages = [
-                    m for m in traj.messages if m.role in ("system", "user")
-                ][:2]
+                context_messages = [m for m in traj.messages if m.role in ("system", "user")][:2]
 
             # call policy's differentiable scoring
             logprobs_tensor = self.policy.score_tokens(context_messages, token_ids)

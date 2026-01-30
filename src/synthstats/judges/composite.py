@@ -25,9 +25,7 @@ class CompositeJudge:
     def __init__(self, judges: list[tuple[Judge, float]]):
         self.judges = judges
 
-    def score(
-        self, *, task_name: str, trajectory: Trajectory, artifacts: dict
-    ) -> Reward:
+    def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
         """Compute weighted combination of sub-judge scores.
 
         Args:

@@ -194,12 +194,8 @@ class TestSubTBLossLengthNormalization:
         """Different lengths should normalize to comparable sums."""
         from synthstats.training.losses.tb_loss import subtb_loss
 
-        log_probs = torch.tensor(
-            [[-1.0, -1.0, 0.0, 0.0], [-1.0, -1.0, -1.0, -1.0]]
-        )
-        loss_mask = torch.tensor(
-            [[True, True, False, False], [True, True, True, True]]
-        )
+        log_probs = torch.tensor([[-1.0, -1.0, 0.0, 0.0], [-1.0, -1.0, -1.0, -1.0]])
+        loss_mask = torch.tensor([[True, True, False, False], [True, True, True, True]])
         log_rewards = torch.tensor([-1.0, -1.0])
         logZ = nn.Parameter(torch.tensor(0.0))
 

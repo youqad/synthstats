@@ -8,7 +8,8 @@ re-scoring to eliminate off-policy bias. logZ is a learned parameter.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -26,7 +27,6 @@ from synthstats.distributed.scoring import (
 )
 from synthstats.training.losses.trajectory_balance import (
     compute_modified_subtb_loss,
-    compute_trajectory_balance_loss,
 )
 
 if TYPE_CHECKING:
@@ -232,9 +232,7 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
             self.cfg = cfg
 
         # learned log partition function
-        self.logZ = nn.Parameter(
-            torch.tensor(gfn_config.logZ_init, device=self._device)
-        )
+        self.logZ = nn.Parameter(torch.tensor(gfn_config.logZ_init, device=self._device))
 
         # replay buffer (driver-side) with FlowRL/TBA enhancements
         self.replay_buffer = DriverGFNReplayBuffer(
@@ -326,14 +324,16 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
         else:
             # no prompt_lengths or response_mask - log warning and use zeros
             logger.warning(
-                "No prompt_lengths or response_mask in batch. "
-                "Loss may be computed incorrectly."
+                "No prompt_lengths or response_mask in batch. Loss may be computed incorrectly."
             )
             fresh_prompt_lengths = torch.zeros(B_fresh, device=device, dtype=torch.long)
 
         # determine replay batch size
         total_batch = B_fresh
-        if self.gfn_config.replay_ratio > 0 and len(self.replay_buffer) >= self.gfn_config.min_buffer_before_replay:
+        if (
+            self.gfn_config.replay_ratio > 0
+            and len(self.replay_buffer) >= self.gfn_config.min_buffer_before_replay
+        ):
             replay_count = int(total_batch * self.gfn_config.replay_ratio)
             fresh_count = total_batch - replay_count
         else:
@@ -364,8 +364,13 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
             fresh_attention_mask=fresh_attention_mask[:fresh_count],
             fresh_prompt_lengths=fresh_prompt_lengths[:fresh_count],
             fresh_log_rewards=fresh_log_rewards[:fresh_count],
-            fresh_terminated=batch.get("terminated", torch.ones(fresh_count, device=device, dtype=torch.bool))[:fresh_count],
-            fresh_temperature=batch.get("temperature", torch.full((fresh_count,), self.gfn_config.temperature, device=device))[:fresh_count],
+            fresh_terminated=batch.get(
+                "terminated", torch.ones(fresh_count, device=device, dtype=torch.bool)
+            )[:fresh_count],
+            fresh_temperature=batch.get(
+                "temperature",
+                torch.full((fresh_count,), self.gfn_config.temperature, device=device),
+            )[:fresh_count],
             replay_entries=replay_entries,
             device=device,
         )
@@ -402,11 +407,11 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
         log_rewards_list = log_rewards.detach().cpu().tolist()
 
         terminated_list = (
-            terminated.detach().cpu().tolist() if terminated is not None
-            else [True] * B
+            terminated.detach().cpu().tolist() if terminated is not None else [True] * B
         )
         temperature_list = (
-            temperature.detach().cpu().tolist() if temperature is not None
+            temperature.detach().cpu().tolist()
+            if temperature is not None
             else [self.gfn_config.temperature] * B
         )
 
@@ -433,7 +438,7 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
         B_replay = len(replay_entries)
 
         if B_replay == 0:
-            L = fresh_input_ids.shape[1]
+            fresh_input_ids.shape[1]
             response_mask = build_response_mask(
                 fresh_input_ids,
                 fresh_prompt_lengths,
@@ -487,8 +492,12 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
             replay_temperature.append(entry.temperature)
 
         replay_input_ids_t = torch.tensor(replay_input_ids, device=device, dtype=torch.long)
-        replay_attention_mask_t = torch.tensor(replay_attention_mask, device=device, dtype=torch.long)
-        replay_prompt_lengths_t = torch.tensor(replay_prompt_lengths, device=device, dtype=torch.long)
+        replay_attention_mask_t = torch.tensor(
+            replay_attention_mask, device=device, dtype=torch.long
+        )
+        replay_prompt_lengths_t = torch.tensor(
+            replay_prompt_lengths, device=device, dtype=torch.long
+        )
         replay_log_rewards_t = torch.tensor(replay_log_rewards, device=device, dtype=torch.float)
         replay_terminated_t = torch.tensor(replay_terminated, device=device, dtype=torch.bool)
         replay_temperature_t = torch.tensor(replay_temperature, device=device, dtype=torch.float)
@@ -517,10 +526,12 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
             attention_mask=combined_attention_mask,
         )
 
-        is_replay = torch.cat([
-            torch.zeros(B_fresh, device=device, dtype=torch.bool),
-            torch.ones(B_replay, device=device, dtype=torch.bool),
-        ])
+        is_replay = torch.cat(
+            [
+                torch.zeros(B_fresh, device=device, dtype=torch.bool),
+                torch.ones(B_replay, device=device, dtype=torch.bool),
+            ]
+        )
 
         return {
             "input_ids": combined_input_ids,
@@ -618,9 +629,7 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
         elif hasattr(self.policy_actor_group, "forward"):
             result = self.policy_actor_group.forward(batch_dict)
         else:
-            raise NotImplementedError(
-                "Actor group has no compute_log_probs or forward method"
-            )
+            raise NotImplementedError("Actor group has no compute_log_probs or forward method")
 
         # extract results - handle both dict and DataProto returns
         if hasattr(result, "batch"):
@@ -683,7 +692,11 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
         stop_token_ids = self._get_stop_token_ids()
 
         # try distributed scoring via actor workers
-        if SKYRL_AVAILABLE and hasattr(self, "policy_actor_group") and self.policy_actor_group is not None:
+        if (
+            SKYRL_AVAILABLE
+            and hasattr(self, "policy_actor_group")
+            and self.policy_actor_group is not None
+        ):
             try:
                 log_probs, eos_logprobs = self._score_batch_distributed(
                     input_ids=input_ids,
@@ -759,14 +772,11 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
 
         # dispatch: augmented TB path handles vargrad, KL, importance weights,
         # reward tempering. SubTB always uses the basic path (no augmented features).
-        use_augmented_tb_loss = (
-            self.gfn_config.loss_type != "modified_subtb"
-            and (
-                self.gfn_config.logz_mode == "vargrad"
-                or self.gfn_config.use_reference_kl
-                or self.gfn_config.use_importance_weights
-                or self.gfn_config.reward_temp != 1.0
-            )
+        use_augmented_tb_loss = self.gfn_config.loss_type != "modified_subtb" and (
+            self.gfn_config.logz_mode == "vargrad"
+            or self.gfn_config.use_reference_kl
+            or self.gfn_config.use_importance_weights
+            or self.gfn_config.reward_temp != 1.0
         )
 
         if self.gfn_config.loss_type == "modified_subtb" and (
@@ -869,9 +879,7 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
             return
 
         try:
-            state_dict = {
-                k: v.detach().cpu() for k, v in self.policy_model.state_dict().items()
-            }
+            state_dict = {k: v.detach().cpu() for k, v in self.policy_model.state_dict().items()}
             self.policy_actor_group.set_weights(state_dict)
         except AttributeError:
             # actor group may not support set_weights (e.g. in tests)
@@ -895,7 +903,7 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
         - flowrl mode (importance weights + reference KL): uses compute_flowrl_loss
         - kl mode: uses compute_tb_loss_with_kl
         """
-        from synthstats.training.losses.trajectory_balance_v2 import (
+        from synthstats.training.losses.trajectory_balance import (
             compute_flowrl_loss,
             compute_tb_loss_with_kl,
             compute_vargrad_tb_loss,
@@ -999,7 +1007,7 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
 
             residual = logZ + masked_logprobs - safe_log_rewards  # [B]
             residual = residual.clamp(-max_residual, max_residual)
-            loss = (residual ** 2).mean()
+            loss = (residual**2).mean()
 
         return loss, {}
 
@@ -1016,17 +1024,21 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
 
         # model parameters
         if hasattr(self, "policy_model") and self.policy_model is not None:
-            groups.append({
-                "params": self.policy_model.parameters(),
-                "lr": base_lr,
-            })
+            groups.append(
+                {
+                    "params": self.policy_model.parameters(),
+                    "lr": base_lr,
+                }
+            )
 
         # logZ with higher LR (skip in VarGrad mode where logZ is estimated)
         if self.gfn_config.logz_mode != "vargrad":
-            groups.append({
-                "params": [self.logZ],
-                "lr": self.gfn_config.lr_logZ,
-            })
+            groups.append(
+                {
+                    "params": [self.logZ],
+                    "lr": self.gfn_config.lr_logZ,
+                }
+            )
 
         return groups
 
@@ -1046,11 +1058,14 @@ class GFlowNetTrainer(RayPPOTrainer):  # type: ignore[misc]
 
         # save logZ separately (not part of model state_dict)
         logz_path = checkpoint_dir / "logZ.pt"
-        torch.save({
-            "logZ": self.logZ.data.cpu(),
-            "policy_version": self.replay_buffer.policy_version,
-            "train_step_count": self._train_step_count,
-        }, logz_path)
+        torch.save(
+            {
+                "logZ": self.logZ.data.cpu(),
+                "policy_version": self.replay_buffer.policy_version,
+                "train_step_count": self._train_step_count,
+            },
+            logz_path,
+        )
 
         logger.info(f"Saved logZ checkpoint to {logz_path}")
 

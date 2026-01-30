@@ -84,9 +84,7 @@ class JSONToolCodec:
     """
 
     # regex for ```json ... ``` code blocks
-    _CODE_BLOCK_RE = re.compile(
-        r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE
-    )
+    _CODE_BLOCK_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE)
 
     @staticmethod
     def _find_json_objects(text: str) -> list[str]:
@@ -129,19 +127,19 @@ class JSONToolCodec:
             "You can respond with JSON in a code block to take actions:",
             "",
             "To call a tool:",
-            '```json',
+            "```json",
             '{"tool": "<tool_name>", "input": {<parameters>}}',
-            '```',
+            "```",
             "",
             "To submit a final answer:",
-            '```json',
+            "```json",
             '{"answer": "<your_answer>"}',
-            '```',
+            "```",
             "",
             "To submit a program:",
-            '```json',
+            "```json",
             '{"program": "<code>", "language": "pymc"}',
-            '```',
+            "```",
             "",
             "Available tools:",
         ]
@@ -273,9 +271,7 @@ class XMLToolCodec:
             code = program_match.group(2)  # preserve whitespace (important for Python)
             return Program(code=code, language=language)
 
-        raise ParseError(
-            f"No valid XML action found in text: {assistant_text[:200]}"
-        )
+        raise ParseError(f"No valid XML action found in text: {assistant_text[:200]}")
 
     def render(self, action: Action) -> str:
         """Render an Action as XML."""

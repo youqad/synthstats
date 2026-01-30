@@ -244,10 +244,12 @@ class TestCompositeJudge:
         likelihood = LikelihoodJudge(beta=0.1)
         formatting = FormattingJudge()
 
-        judge = CompositeJudge([
-            (likelihood, 0.7),
-            (formatting, 0.3),
-        ])
+        judge = CompositeJudge(
+            [
+                (likelihood, 0.7),
+                (formatting, 0.3),
+            ]
+        )
         traj = make_trajectory()
         artifacts = {"elpd": 0.0, "program": "x = 1"}
 
@@ -265,10 +267,12 @@ class TestCompositeJudge:
         likelihood = LikelihoodJudge(beta=0.1)
         formatting = FormattingJudge()
 
-        judge = CompositeJudge([
-            (likelihood, 0.7),
-            (formatting, 0.3),
-        ])
+        judge = CompositeJudge(
+            [
+                (likelihood, 0.7),
+                (formatting, 0.3),
+            ]
+        )
         traj = make_trajectory()
         artifacts = {"elpd": 0.0, "program": "import subprocess"}
 
@@ -284,10 +288,12 @@ class TestCompositeJudge:
         likelihood = LikelihoodJudge(beta=0.1)
         formatting = FormattingJudge()
 
-        judge = CompositeJudge([
-            (likelihood, 0.5),
-            (formatting, 0.5),
-        ])
+        judge = CompositeJudge(
+            [
+                (likelihood, 0.5),
+                (formatting, 0.5),
+            ]
+        )
         traj = make_trajectory()
         artifacts = {"elpd": 10.0, "program": "x = 1"}
 
@@ -472,9 +478,7 @@ problem_alignment: 0.7
 RATIONALE: Good basic model."""
 
         with patch.object(judge, "_call_llm", return_value=mock_response):
-            reward = judge.score(
-                task_name="dugongs", trajectory=traj, artifacts=artifacts
-            )
+            reward = judge.score(task_name="dugongs", trajectory=traj, artifacts=artifacts)
 
         assert reward.total == pytest.approx((0.8 + 0.9 + 0.7) / 3)
         assert reward.components["code_quality"] == pytest.approx(0.8)
@@ -525,9 +529,7 @@ RATIONALE: Good basic model."""
 
         # averaged scores
         assert reward.components["code_quality"] == pytest.approx((0.6 + 0.8) / 2)
-        assert reward.components["statistical_validity"] == pytest.approx(
-            (0.8 + 0.6) / 2
-        )
+        assert reward.components["statistical_validity"] == pytest.approx((0.8 + 0.6) / 2)
         assert reward.components["problem_alignment"] == pytest.approx((0.7 + 0.9) / 2)
         assert reward.info["num_samples"] == 2
 
@@ -550,10 +552,12 @@ RATIONALE: Good basic model."""
         llm_critic = LLMCriticJudge()
         formatting = FormattingJudge()
 
-        judge = CompositeJudge([
-            (llm_critic, 0.6),
-            (formatting, 0.4),
-        ])
+        judge = CompositeJudge(
+            [
+                (llm_critic, 0.6),
+                (formatting, 0.4),
+            ]
+        )
 
         traj = make_trajectory()
         artifacts = {"program": "import pymc as pm\nx = pm.Normal('x', 0, 1)"}
@@ -565,9 +569,7 @@ problem_alignment: 0.9
 RATIONALE: Great model."""
 
         with patch.object(llm_critic, "_call_llm", return_value=mock_response):
-            reward = judge.score(
-                task_name="test", trajectory=traj, artifacts=artifacts
-            )
+            reward = judge.score(task_name="test", trajectory=traj, artifacts=artifacts)
 
         # 0.6 * 0.9 (llm avg) + 0.4 * 1.0 (formatting) = 0.54 + 0.4 = 0.94
         expected = 0.6 * 0.9 + 0.4 * 1.0

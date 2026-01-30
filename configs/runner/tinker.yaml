@@ -1,0 +1,11 @@
+# Tinker API Training Runner
+#
+# Uses Tinker's API for model training.
+# Local env and collection, API-based policy and training.
+
+type: tinker
+
+train:
+  steps: 500
+  batch_size: 4
+  temperature: 0.7

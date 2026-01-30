@@ -35,9 +35,7 @@ class TestSubTBBasics:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, clip_ratio = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, clip_ratio = compute_modified_subtb_loss(log_probs, log_probs, advantages, config)
 
         assert loss.shape == ()
         assert not torch.isnan(loss)
@@ -50,14 +48,10 @@ class TestSubTBBasics:
         config = {"logZ": 0.0, "subtb_lambda": 0.9}
 
         # without _eos_logprobs, should fall back
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config)
 
         # compare with vanilla TB
-        tb_loss, _ = compute_trajectory_balance_loss(
-            log_probs, log_probs, advantages, config
-        )
+        tb_loss, _ = compute_trajectory_balance_loss(log_probs, log_probs, advantages, config)
 
         assert torch.isclose(loss, tb_loss)
 
@@ -77,9 +71,7 @@ class TestSubTBBasics:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config)
 
         # should not crash, falls back to vanilla TB
         assert not torch.isnan(loss)
@@ -182,12 +174,8 @@ class TestLambdaWeighting:
         object.__setattr__(config_high, "_eos_logprobs", eos_logprobs)
         object.__setattr__(config_low, "_eos_logprobs", eos_logprobs)
 
-        loss_high, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config_high
-        )
-        loss_low, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config_low
-        )
+        loss_high, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config_high)
+        loss_low, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config_low)
 
         # losses should differ (lambda affects the weighting)
         assert not torch.isclose(loss_high, loss_low, atol=1e-6)
@@ -209,9 +197,7 @@ class TestLambdaWeighting:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config)
 
         # should not crash, computes only len-1 residuals
         assert not torch.isnan(loss)
@@ -242,12 +228,8 @@ class TestEOSLogprobsEffect:
         object.__setattr__(config1, "_eos_logprobs", eos1)
         object.__setattr__(config2, "_eos_logprobs", eos2)
 
-        loss1, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config1
-        )
-        loss2, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config2
-        )
+        loss1, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config1)
+        loss2, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config2)
 
         # different EOS logprobs should give different losses
         assert not torch.isclose(loss1, loss2, atol=1e-6)
@@ -273,9 +255,7 @@ class TestGradientFlow:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config)
         loss.backward()
 
         assert log_probs.grad is not None
@@ -287,9 +267,11 @@ class TestMasking:
 
     def test_respects_loss_mask(self):
         """Masked positions should not contribute to loss."""
-        log_probs = torch.tensor([
-            [-1.0, -1.0, -999.0, -999.0],  # last two should be ignored
-        ])
+        log_probs = torch.tensor(
+            [
+                [-1.0, -1.0, -999.0, -999.0],  # last two should be ignored
+            ]
+        )
         advantages = torch.tensor([[1.0, 1.0, 1.0, 1.0]])
         eos_logprobs = torch.tensor([[-0.5, -0.5, -0.5, -0.5]])
         loss_mask = torch.tensor([[1.0, 1.0, 0.0, 0.0]])  # mask last two
@@ -305,9 +287,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config, loss_mask)
 
         # loss should be finite (not blown up by -999)
         assert not torch.isnan(loss)
@@ -322,23 +302,31 @@ class TestMasking:
         # batch with two samples of different valid lengths
         # sample 0: 2 valid tokens (mask=[1,1,0,0])
         # sample 1: 4 valid tokens (mask=[1,1,1,1])
-        log_probs = torch.tensor([
-            [1.0, 2.0, 999.0, 999.0],  # sample 0: valid at positions 0,1
-            [1.0, 2.0, 3.0, 4.0],      # sample 1: valid at all positions
-        ])
-        eos_logprobs = torch.tensor([
-            [-1.0, -2.0, -3.0, -4.0],
-            [-1.0, -2.0, -3.0, -4.0],
-        ])
+        log_probs = torch.tensor(
+            [
+                [1.0, 2.0, 999.0, 999.0],  # sample 0: valid at positions 0,1
+                [1.0, 2.0, 3.0, 4.0],  # sample 1: valid at all positions
+            ]
+        )
+        eos_logprobs = torch.tensor(
+            [
+                [-1.0, -2.0, -3.0, -4.0],
+                [-1.0, -2.0, -3.0, -4.0],
+            ]
+        )
         # broadcast reward (same at all positions per tb_identity)
-        log_rewards = torch.tensor([
-            [10.0, 10.0, 10.0, 10.0],  # sample 0 reward
-            [20.0, 20.0, 20.0, 20.0],  # sample 1 reward
-        ])
-        loss_mask = torch.tensor([
-            [1.0, 1.0, 0.0, 0.0],  # sample 0: 2 valid
-            [1.0, 1.0, 1.0, 1.0],  # sample 1: 4 valid
-        ])
+        log_rewards = torch.tensor(
+            [
+                [10.0, 10.0, 10.0, 10.0],  # sample 0 reward
+                [20.0, 20.0, 20.0, 20.0],  # sample 1 reward
+            ]
+        )
+        loss_mask = torch.tensor(
+            [
+                [1.0, 1.0, 0.0, 0.0],  # sample 0: 2 valid
+                [1.0, 1.0, 1.0, 1.0],  # sample 1: 4 valid
+            ]
+        )
 
         class Config:
             logZ = 0.0
@@ -351,9 +339,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, log_rewards, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, log_rewards, config, loss_mask)
 
         # loss should be finite
         assert not torch.isnan(loss)
@@ -384,19 +370,27 @@ class TestMasking:
         approach ensures ALL positions in a sub-trajectory must be valid.
         """
         # batch with non-contiguous mask (gap at position 1)
-        log_probs = torch.tensor([
-            [1.0, 999.0, 2.0, 3.0],  # positions 0,2,3 valid; position 1 masked
-        ])
-        eos_logprobs = torch.tensor([
-            [-1.0, -2.0, -3.0, -4.0],
-        ])
-        log_rewards = torch.tensor([
-            [10.0, 10.0, 10.0, 10.0],
-        ])
+        log_probs = torch.tensor(
+            [
+                [1.0, 999.0, 2.0, 3.0],  # positions 0,2,3 valid; position 1 masked
+            ]
+        )
+        eos_logprobs = torch.tensor(
+            [
+                [-1.0, -2.0, -3.0, -4.0],
+            ]
+        )
+        log_rewards = torch.tensor(
+            [
+                [10.0, 10.0, 10.0, 10.0],
+            ]
+        )
         # gap mask: position 1 is invalid
-        loss_mask = torch.tensor([
-            [1.0, 0.0, 1.0, 1.0],
-        ])
+        loss_mask = torch.tensor(
+            [
+                [1.0, 0.0, 1.0, 1.0],
+            ]
+        )
 
         class Config:
             logZ = 0.0
@@ -409,9 +403,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, log_rewards, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, log_rewards, config, loss_mask)
 
         # loss should be finite
         assert not torch.isnan(loss)
@@ -459,9 +451,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, log_rewards, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, log_rewards, config, loss_mask)
 
         # For T=1: delta = log_pf - eos + log_R = 2 - (-3) + 5 = 10
         # residual = delta = 10
@@ -492,9 +482,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, log_rewards, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, log_rewards, config, loss_mask)
 
         # loss must be finite
         assert not torch.isnan(loss)
@@ -512,18 +500,26 @@ class TestMasking:
         the cumsum would propagate NaN to all subsequent positions unless
         we explicitly zero out masked positions BEFORE cumsum.
         """
-        log_probs = torch.tensor([
-            [1.0, float("nan"), 2.0, 3.0],  # NaN at position 1 (masked)
-        ])
-        eos_logprobs = torch.tensor([
-            [-1.0, -2.0, -3.0, -4.0],
-        ])
-        log_rewards = torch.tensor([
-            [10.0, 10.0, 10.0, 10.0],
-        ])
-        loss_mask = torch.tensor([
-            [1.0, 0.0, 1.0, 1.0],  # position 1 masked (contains NaN)
-        ])
+        log_probs = torch.tensor(
+            [
+                [1.0, float("nan"), 2.0, 3.0],  # NaN at position 1 (masked)
+            ]
+        )
+        eos_logprobs = torch.tensor(
+            [
+                [-1.0, -2.0, -3.0, -4.0],
+            ]
+        )
+        log_rewards = torch.tensor(
+            [
+                [10.0, 10.0, 10.0, 10.0],
+            ]
+        )
+        loss_mask = torch.tensor(
+            [
+                [1.0, 0.0, 1.0, 1.0],  # position 1 masked (contains NaN)
+            ]
+        )
 
         class Config:
             logZ = 0.0
@@ -536,9 +532,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, log_rewards, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, log_rewards, config, loss_mask)
 
         # loss must be finite - NaN at masked position must not propagate
         assert not torch.isnan(loss), "NaN at masked position propagated to loss!"
@@ -546,22 +540,30 @@ class TestMasking:
 
     def test_fully_masked_sample_excluded(self):
         """Samples with all-zero mask should be excluded from loss."""
-        log_probs = torch.tensor([
-            [1.0, 2.0, 3.0],  # sample 0: has valid positions
-            [999.0, 999.0, 999.0],  # sample 1: fully masked
-        ])
-        eos_logprobs = torch.tensor([
-            [-1.0, -2.0, -3.0],
-            [-1.0, -2.0, -3.0],
-        ])
-        log_rewards = torch.tensor([
-            [10.0, 10.0, 10.0],
-            [999.0, 999.0, 999.0],  # would cause problems if not excluded
-        ])
-        loss_mask = torch.tensor([
-            [1.0, 1.0, 1.0],  # sample 0: all valid
-            [0.0, 0.0, 0.0],  # sample 1: all invalid
-        ])
+        log_probs = torch.tensor(
+            [
+                [1.0, 2.0, 3.0],  # sample 0: has valid positions
+                [999.0, 999.0, 999.0],  # sample 1: fully masked
+            ]
+        )
+        eos_logprobs = torch.tensor(
+            [
+                [-1.0, -2.0, -3.0],
+                [-1.0, -2.0, -3.0],
+            ]
+        )
+        log_rewards = torch.tensor(
+            [
+                [10.0, 10.0, 10.0],
+                [999.0, 999.0, 999.0],  # would cause problems if not excluded
+            ]
+        )
+        loss_mask = torch.tensor(
+            [
+                [1.0, 1.0, 1.0],  # sample 0: all valid
+                [0.0, 0.0, 0.0],  # sample 1: all invalid
+            ]
+        )
 
         class Config:
             logZ = 0.0
@@ -574,9 +576,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, log_rewards, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, log_rewards, config, loss_mask)
 
         # loss should be finite (fully-masked sample excluded)
         assert not torch.isnan(loss)
@@ -611,9 +611,7 @@ class TestMasking:
         config = Config()
         object.__setattr__(config, "_eos_logprobs", eos_logprobs)
 
-        loss, _ = compute_modified_subtb_loss(
-            log_probs, log_probs, advantages, config, loss_mask
-        )
+        loss, _ = compute_modified_subtb_loss(log_probs, log_probs, advantages, config, loss_mask)
 
         # loss must be finite - bfloat16 precision issues must not break it
         assert not torch.isnan(loss), "bfloat16 long sequence produced NaN!"
@@ -868,7 +866,7 @@ class TestEOSLogprobPipeline:
         batch = {
             "log_probs": torch.randn(2, 5),
             "log_reward": torch.tensor([1.0, 2.0]),
-            "mask": torch.ones(2, 5, dtype=torch.bool),
+            "loss_mask": torch.ones(2, 5, dtype=torch.bool),
             "entropy": torch.randn(2, 5),
         }
 
@@ -888,7 +886,7 @@ class TestEOSLogprobPipeline:
         batch = {
             "log_probs": torch.randn(2, 5),
             "log_reward": torch.tensor([1.0, 2.0]),
-            "mask": torch.ones(2, 5, dtype=torch.bool),
+            "loss_mask": torch.ones(2, 5, dtype=torch.bool),
             "entropy": torch.randn(2, 5),
             "eos_logprobs": torch.randn(2, 5),  # EOS logprobs provided
         }
@@ -910,7 +908,7 @@ class TestEOSLogprobPipeline:
         batch = {
             "log_probs": torch.randn(2, 5),
             "log_reward": torch.tensor([1.0, 2.0]),
-            "mask": torch.ones(2, 5, dtype=torch.bool),
+            "loss_mask": torch.ones(2, 5, dtype=torch.bool),
             "entropy": torch.randn(2, 5),
             # no eos_logprobs key
         }

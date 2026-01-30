@@ -4,6 +4,7 @@ defaults:
   - task: boxing
   - judge: composite
   - runtime: default
+  - checkpoint: default
   - _self_
 
 # Global settings

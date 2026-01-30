@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import pytest
-import torch
 from unittest.mock import MagicMock, patch
 
+import pytest
+import torch
+
+from synthstats.distributed.driver_replay_buffer import DriverGFNReplayBuffer
 from synthstats.distributed.gfn_trainer import (
     GFlowNetTrainer,
-    GFNConfig,
     GFNBatch,
+    GFNConfig,
 )
-from synthstats.distributed.driver_replay_buffer import DriverGFNReplayBuffer
 
 
 class TestGFNConfig:
@@ -354,6 +355,7 @@ class TestGradientFlow:
     @pytest.fixture
     def small_model(self):
         """Small LM for testing."""
+
         class SmallLM(torch.nn.Module):
             def __init__(self, vocab_size: int = 100, hidden_dim: int = 32):
                 super().__init__()
@@ -395,10 +397,12 @@ class TestGradientFlow:
         trainer.policy_model = small_model
 
         # optimizer includes both model and logZ
-        trainer.optimizer = torch.optim.Adam([
-            {"params": small_model.parameters(), "lr": 1e-3},
-            {"params": [trainer.logZ], "lr": 0.01},
-        ])
+        trainer.optimizer = torch.optim.Adam(
+            [
+                {"params": small_model.parameters(), "lr": 1e-3},
+                {"params": [trainer.logZ], "lr": 0.01},
+            ]
+        )
 
         return trainer
 
@@ -429,7 +433,7 @@ class TestGradientFlow:
 
         # check that policy model parameters have gradients
         has_grad = False
-        for name, param in trainer.policy_model.named_parameters():
+        for _name, param in trainer.policy_model.named_parameters():
             if param.grad is not None and param.grad.abs().sum() > 0:
                 has_grad = True
                 break
@@ -446,8 +450,7 @@ class TestGradientFlow:
 
         # capture initial parameter values
         initial_params = {
-            name: param.clone().detach()
-            for name, param in trainer.policy_model.named_parameters()
+            name: param.clone().detach() for name, param in trainer.policy_model.named_parameters()
         }
 
         input_ids = torch.randint(0, 100, (B, L))
