@@ -524,11 +524,12 @@ class TrainingLoop:
         self._all_metrics = state.metrics_history.copy()
 
         # restore trainer state
-        self.trainer.load_state_dict({"logZ": state.logZ, "config": state.config})
+        if self.trainer is not None:
+            self.trainer.load_state_dict({"logZ": state.logZ, "config": state.config})
 
-        # restore optimizer state
-        if state.optimizer_state_dict is not None and self.trainer.optimizer is not None:
-            self.trainer.optimizer.load_state_dict(state.optimizer_state_dict)
+            # restore optimizer state
+            if state.optimizer_state_dict is not None and self.trainer.optimizer is not None:
+                self.trainer.optimizer.load_state_dict(state.optimizer_state_dict)
 
         # restore RNG states
         set_rng_states(state.rng_states)

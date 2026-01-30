@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 
 
@@ -19,7 +21,7 @@ def resolve_device(device_str: str) -> str:
     return device_str
 
 
-def get_device_info() -> dict[str, any]:
+def get_device_info() -> dict[str, Any]:
     """Get information about available devices.
 
     Returns:
