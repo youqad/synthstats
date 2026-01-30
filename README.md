@@ -5,6 +5,7 @@
 <h1 align="center">SynthStats</h1>
 
 <p align="center">
+  <a href="https://github.com/youqad/synthstats/actions/workflows/ci.yml"><img src="https://github.com/youqad/synthstats/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/python-3.12%20|%203.13-blue.svg" alt="Python 3.12-3.13">
   <img src="https://img.shields.io/badge/docs-mkdocs-blue.svg" alt="Documentation">
 </p>
