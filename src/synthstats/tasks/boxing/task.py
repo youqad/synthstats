@@ -5,6 +5,8 @@ The task presents a scientific discovery problem where the agent must:
 2. Submit a probabilistic program that explains the data
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from synthstats.core.types import Action, Message, Program, StepResult, ToolCall

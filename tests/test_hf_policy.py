@@ -1,4 +1,4 @@
-"""Tests for HFPolicy - WRITTEN FIRST per TDD.
+"""Tests for HFPolicy.
 
 Note: These tests don't load actual models (too slow/expensive).
 They test the interface and mock behavior.
@@ -113,8 +113,8 @@ class TestMockHFPolicy:
 
         assert isinstance(action, dict)
         assert "type" in action
-        assert isinstance(logp, (float, torch.Tensor))
-        assert isinstance(ent, (float, torch.Tensor))
+        assert isinstance(logp, float | torch.Tensor)
+        assert isinstance(ent, float | torch.Tensor)
 
     def test_mock_policy_with_temperature(self):
         """Policy should accept temperature parameter."""
@@ -176,6 +176,6 @@ class TestPolicyOutput:
 
 
 # Note: TestHFPolicyIntegrationWithCollector was removed in January 2026
-# when we migrated to native SkyRL integration. The SimpleCollector and
+# when we migrated to native SkyRL integration. The TrajectoryCollector and
 # SynthStatsTextEnv classes were archived to _archive/skyrl_integration_2026-01/.
 # For policy integration tests with native SkyRL, see test_tb_trainer.py.

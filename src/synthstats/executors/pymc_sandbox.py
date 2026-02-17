@@ -1,8 +1,6 @@
-"""PyMC Sandbox Executor - safe execution of PyMC code.
+"""PyMC sandbox executor."""
 
-Provides AST-based security checks and subprocess isolation for running
-untrusted PyMC probabilistic programs.
-"""
+from __future__ import annotations
 
 import ast
 import os
@@ -11,6 +9,7 @@ import sys
 import tempfile
 
 from synthstats.core.executor import ToolResult
+from synthstats.core.process import cleanup_process_group
 from synthstats.core.types import ToolCall
 
 # modules that could enable file system, network, or shell access
@@ -198,19 +197,25 @@ class ASTSecurityChecker(ast.NodeVisitor):
             "pandas",
             "pd",
             "jax",
-            "numpyro",
-            "torch",
-        }
-    )
+        "numpyro",
+        "torch",
+        "time",
+    }
+)
 
     def __init__(self):
         self.violations: list[str] = []
+        # map imported alias -> root module for allowlist checks
+        self._import_aliases: dict[str, str] = {}
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             module_name = alias.name.split(".")[0]
             if module_name in BLOCKED_MODULES:
                 self.violations.append(f"Blocked import: {alias.name}")
+            else:
+                alias_name = alias.asname or module_name
+                self._import_aliases[alias_name] = module_name
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -218,6 +223,10 @@ class ASTSecurityChecker(ast.NodeVisitor):
             module_name = node.module.split(".")[0]
             if module_name in BLOCKED_MODULES:
                 self.violations.append(f"Blocked import: from {node.module}")
+            else:
+                for alias in node.names:
+                    alias_name = alias.asname or alias.name
+                    self._import_aliases[alias_name] = module_name
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -251,6 +260,16 @@ class ASTSecurityChecker(ast.NodeVisitor):
             # __init__ and __call__ are NOT needed for modeling and increase attack surface
             if node.attr not in {"__name__", "__doc__"}:
                 self.violations.append(f"Blocked dunder access: {node.attr}")
+
+        # enforce allowlist for imported module aliases (e.g., pd.read_csv)
+        root = self._resolve_root_name(node)
+        if root is not None and root in self._import_aliases:
+            module_name = self._import_aliases[root]
+            if module_name not in self.ALLOWED_MODULES:
+                self.violations.append(
+                    "Blocked attribute access via non-allowlisted module alias: "
+                    f"{root} ({module_name})"
+                )
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -262,6 +281,15 @@ class ASTSecurityChecker(ast.NodeVisitor):
                     f"Blocked: cannot reference '{node.id}' (prevents aliasing bypass)"
                 )
         self.generic_visit(node)
+
+    @staticmethod
+    def _resolve_root_name(node: ast.AST) -> str | None:
+        cur = node
+        while isinstance(cur, ast.Attribute):
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            return cur.id
+        return None
 
 
 def check_code_safety(code: str) -> tuple[bool, str | None]:
@@ -330,38 +358,60 @@ class PyMCExecutor:
 
         Uses stdin to pass code directly, avoiding temp file TOCTOU vulnerability.
         """
+        def _set_rlimits() -> None:
+            """Unix resource limits for subprocess."""
+            try:
+                import resource
+
+                cpu_limit = max(1, int(timeout_s))
+                resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
+                if sys.platform == "linux":
+                    mem_limit = 2 * 1024 * 1024 * 1024
+                    resource.setrlimit(resource.RLIMIT_AS, (mem_limit, mem_limit))
+            except (ImportError, AttributeError, ValueError, OSError):
+                pass
+
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 [sys.executable, "-"],  # read code from stdin
-                input=code,
-                capture_output=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout_s,
                 cwd=tempfile.gettempdir(),
-                # use allowlist to prevent leaking API keys/credentials to sandbox
+                start_new_session=True,
+                preexec_fn=_set_rlimits if os.name == "posix" else None,
                 env={
                     **{k: os.environ[k] for k in SAFE_ENV_VARS if k in os.environ},
                     "PYTHONDONTWRITEBYTECODE": "1",
                 },
             )
-
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+            try:
+                stdout, stderr = proc.communicate(input=code, timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                cleanup_process_group(proc)
                 return ToolResult(
-                    output=result.stdout,
+                    output="",
+                    success=False,
+                    error=f"Timeout: code execution exceeded {timeout_s}s",
+                )
+
+            if proc.returncode != 0:
+                error_msg = stderr.strip() if stderr else "Unknown error"
+                return ToolResult(
+                    output=stdout,
                     success=False,
                     error=error_msg,
                 )
 
             return ToolResult(
-                output=result.stdout,
+                output=stdout,
                 success=True,
                 error=None,
             )
-
-        except subprocess.TimeoutExpired:
+        except Exception as e:
             return ToolResult(
                 output="",
                 success=False,
-                error=f"Timeout: code execution exceeded {timeout_s}s",
+                error=f"Execution setup failed: {e}",
             )

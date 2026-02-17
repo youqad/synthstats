@@ -1,4 +1,6 @@
-"""CompositeJudge - combines multiple judges with configurable weights."""
+"""Weighted combination of multiple judges."""
+
+from __future__ import annotations
 
 from synthstats.core.judge import Judge
 from synthstats.core.types import Reward, Trajectory

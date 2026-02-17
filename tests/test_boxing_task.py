@@ -364,33 +364,33 @@ class TestBoxingCodec:
         assert isinstance(action, Program)
         assert action.code == program_code
 
-    def test_codec_parse_invalid_returns_none(self):
+    def test_codec_parse_invalid_raises(self):
+        from synthstats.runtime.codecs import ParseError
         from synthstats.tasks.boxing.codecs import BoxingCodec
 
         codec = BoxingCodec()
         text = "just some random text"
-        action = codec.parse(text)
+        with pytest.raises(ParseError):
+            codec.parse(text)
 
-        assert action is None
-
-    def test_codec_format_query(self):
+    def test_codec_render_query(self):
         from synthstats.core.types import ToolCall
         from synthstats.tasks.boxing.codecs import BoxingCodec
 
         codec = BoxingCodec()
         action = ToolCall(name="query", input={"query": "age=5"}, raw="")
-        text = codec.format(action)
+        text = codec.render(action)
 
         assert "query" in text
         assert "age=5" in text
 
-    def test_codec_format_program(self):
+    def test_codec_render_program(self):
         from synthstats.core.types import Program
         from synthstats.tasks.boxing.codecs import BoxingCodec
 
         codec = BoxingCodec()
         action = Program(code="import pymc as pm")
-        text = codec.format(action)
+        text = codec.render(action)
 
         assert "submit_program" in text
         assert "import pymc as pm" in text

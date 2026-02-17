@@ -6,6 +6,8 @@ where alpha=2.65, beta=0.97, lambda=-0.87
 This is a simplified stub - the real BoxingGym env has more features.
 """
 
+from __future__ import annotations
+
 import random
 
 

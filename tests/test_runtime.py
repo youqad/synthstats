@@ -1,4 +1,4 @@
-"""Tests for runtime layer - WRITTEN FIRST per TDD.
+"""Tests for runtime layer.
 
 Tests for:
 - ActionCodec protocol and implementations (JSONToolCodec, XMLToolCodec)
@@ -464,7 +464,7 @@ class TestRolloutEpisode:
         assistant_msgs = [m for m in traj.messages if m.role == "assistant"]
         assert len(assistant_msgs) <= 3
 
-    def test_rollout_handles_parse_error_gracefully(self):
+    def test_rollout_recovers_from_parse_error(self):
         from synthstats.runtime.codecs import JSONToolCodec
         from synthstats.runtime.rollout import RolloutConfig, rollout_episode
 
@@ -507,7 +507,7 @@ class TestRolloutEpisode:
         judge = self._make_dummy_judge()
         cfg = RolloutConfig(max_steps=10)
 
-        # should handle missing executor gracefully
+        # missing executor falls back without crashing
         traj = rollout_episode(
             task=task,
             policy=policy,
@@ -644,6 +644,26 @@ class TestRolloutEpisode:
         # should have accumulated artifacts from both steps
         assert "artifact_1" in captured_artifacts
         assert "artifact_2" in captured_artifacts
+
+
+class TestRolloutLossMask:
+    def test_build_loss_mask_keeps_think_tokens_included_for_training(self):
+        from synthstats.runtime.rollout import _build_loss_mask
+
+        class CharTokenizer:
+            def decode(self, token_ids: list[int], skip_special_tokens: bool = False) -> str:
+                del skip_special_tokens
+                return "".join(chr(token_id) for token_id in token_ids)
+
+        class PolicyWithTokenizer:
+            tokenizer = CharTokenizer()
+
+        text = "<think>latent reasoning</think>answer = 42"
+        token_ids = [ord(ch) for ch in text]
+
+        mask = _build_loss_mask(PolicyWithTokenizer(), text, token_ids)
+
+        assert mask == [True] * len(token_ids)
 
 
 # --- ActionCodec Protocol Tests ---

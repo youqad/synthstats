@@ -4,10 +4,12 @@ The rollout_episode function is the main entry point for running a single
 episode with any task, policy, codec combination.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 
-from synthstats.core.executor import Executor, ToolResult
+from synthstats.core.executor import Executor, ToolResult, execute_tool_call
 from synthstats.core.judge import Judge
 from synthstats.core.policy import GenConfig, Policy
 from synthstats.core.task import Task
@@ -38,26 +40,7 @@ def rollout_episode(
     judge: Judge,
     cfg: RolloutConfig,
 ) -> Trajectory:
-    """Run a single episode and return the trajectory.
-
-    This is the unified rollout loop used by all tasks. The loop:
-    1. task.reset(seed) - initialize episode state
-    2. task.observe(state) - get messages for policy
-    3. policy.generate(messages) - sample from LLM
-    4. codec.parse(generation.text) - parse into Action
-    5. if ToolCall: executor.execute() - run tool, append result to messages
-    6. task.step(state, action) - update state
-    7. if not done, goto 2
-    8. judge.score() - compute reward
-    9. return Trajectory
-
-    Args:
-        task: Task instance providing reset/observe/step.
-        policy: Policy instance for generation.
-        codec: ActionCodec for parsing LLM output.
-        executors: Dict mapping tool names to Executor instances.
-        judge: Judge for computing reward.
-        cfg: Rollout configuration.
+    """Run a single episode: reset -> observe -> generate -> parse -> step -> score.
 
     Returns:
         Trajectory with messages, token data, and reward.
@@ -68,24 +51,23 @@ def rollout_episode(
     token_ids: list[list[int]] = []
     token_logprobs: list[list[float]] = []
     loss_mask: list[list[bool]] = []
+    eos_logprobs: list[list[float]] = []
     accumulated_artifacts: dict[str, Any] = {}
     done = False
     steps = 0
 
     while not done and steps < cfg.max_steps:
-        # get observations
         obs_messages = task.observe(state)
         messages.extend(obs_messages)
 
         # generate response
         generation = policy.generate(messages, gen=cfg.gen_config)
 
-        # add assistant message
         messages.append(Message(role="assistant", content=generation.text))
         token_ids.append(generation.token_ids)
         token_logprobs.append(generation.token_logprobs)
-        # default: all tokens contribute to loss
-        loss_mask.append([True] * len(generation.token_ids))
+        loss_mask.append(_build_loss_mask(policy, generation.text, generation.token_ids))
+        eos_logprobs.append(generation.eos_logprobs)
 
         # parse action
         try:
@@ -122,6 +104,7 @@ def rollout_episode(
         token_logprobs=token_logprobs,
         loss_mask=loss_mask,
         reward=Reward(total=0.0, components={}, info={}),  # placeholder
+        eos_logprobs=eos_logprobs,
     )
 
     # score with judge
@@ -131,14 +114,24 @@ def rollout_episode(
         artifacts=accumulated_artifacts,
     )
 
-    # return trajectory with final reward
     return Trajectory(
         messages=trajectory.messages,
         token_ids=trajectory.token_ids,
         token_logprobs=trajectory.token_logprobs,
         loss_mask=trajectory.loss_mask,
         reward=final_reward,
+        eos_logprobs=trajectory.eos_logprobs,
     )
+
+
+def _build_loss_mask(policy: Policy, text: str, token_ids: list[int]) -> list[bool]:
+    """Build per-token loss mask.
+
+    TB/SubTB optimize over the full latent trajectory (Z, Y), so all generated
+    tokens (including <think> reasoning) are included in the loss by default.
+    """
+    del policy, text
+    return [True] * len(token_ids)
 
 
 def _execute_tool(
@@ -146,30 +139,11 @@ def _execute_tool(
     executors: dict[str, Executor],
     timeout_s: float,
 ) -> ToolResult:
-    """Execute a tool call using the appropriate executor.
-
-    Args:
-        action: ToolCall to execute.
-        executors: Dict mapping tool names to Executor instances.
-        timeout_s: Timeout for execution.
-
-    Returns:
-        ToolResult from execution or error result if executor not found.
-    """
-    executor = executors.get(action.name)
-    if executor is None:
-        available = list(executors.keys())
-        return ToolResult(
-            output=(f"Error: Unknown tool '{action.name}'. Available tools: {available}"),
-            success=False,
-            error=f"Unknown tool: {action.name}",
-        )
-
-    try:
-        return executor.execute(action, timeout_s=timeout_s)
-    except Exception as e:
-        return ToolResult(
-            output=f"Error executing {action.name}: {e}",
-            success=False,
-            error=str(e),
-        )
+    """Execute a tool call."""
+    return execute_tool_call(
+        action,
+        executors,
+        timeout_s=timeout_s,
+        unknown_prefix="Error: ",
+        unknown_available_label="Available tools",
+    )

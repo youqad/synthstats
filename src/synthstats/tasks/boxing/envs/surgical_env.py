@@ -13,8 +13,12 @@ Parameters:
 The agent queries hospital IDs to observe (deaths, exposure) pairs.
 """
 
+from __future__ import annotations
+
 import math
 import random
+
+from synthstats.tasks.boxing.envs.query_parsing import parse_query_int
 
 
 class SurgicalEnv:
@@ -101,15 +105,13 @@ class SurgicalEnv:
         Returns:
             Result string with deaths and exposure, or error message.
         """
-        if "hospital=" in query:
-            try:
-                hospital_id = int(query.split("hospital=")[1].split()[0])
-                if 1 <= hospital_id <= self.n_hospitals:
-                    idx = hospital_id - 1
-                    deaths = self.deaths[idx]
-                    exposure = self.exposures[idx]
-                    return f"deaths={deaths}, exposure={exposure}"
-                return f"Invalid hospital ID. Use 1-{self.n_hospitals}."
-            except (ValueError, IndexError):
-                pass
-        return f"Invalid query. Use format: hospital=<1-{self.n_hospitals}>"
+        hospital_id = parse_query_int(query, "hospital")
+        if hospital_id is None:
+            return f"Invalid query. Use format: hospital=<1-{self.n_hospitals}>"
+        if not 1 <= hospital_id <= self.n_hospitals:
+            return f"Invalid hospital ID. Use 1-{self.n_hospitals}."
+
+        idx = hospital_id - 1
+        deaths = self.deaths[idx]
+        exposure = self.exposures[idx]
+        return f"deaths={deaths}, exposure={exposure}"

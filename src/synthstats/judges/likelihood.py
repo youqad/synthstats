@@ -1,8 +1,6 @@
-"""LikelihoodJudge - ELPD-based reward computation.
+"""LikelihoodJudge - ELPD-based reward computation."""
 
-Computes rewards based on Expected Log Pointwise Predictive Density (ELPD-LOO).
-Uses ArviZ for LOO-CV computation when PyMC inference data is available.
-"""
+from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING
@@ -14,30 +12,13 @@ if TYPE_CHECKING:
 
 
 class LikelihoodJudge:
-    """Computes reward from ELPD-LOO.
-
-    Supports two modes:
-    1. Pre-computed: reads artifacts["elpd"] if already computed
-    2. Full computation: uses ArviZ to compute ELPD-LOO from artifacts["idata"]
-
-    Args:
-        beta: Scaling factor for ELPD in the exponent. Default 0.1.
-        clip_range: (min, max) for log_reward before exp. Prevents overflow.
-    """
+    """Reward = exp(beta * ELPD-LOO). Uses ArviZ when idata is available."""
 
     def __init__(self, beta: float = 0.1, clip_range: tuple[float, float] = (-700, 700)):
         self.beta = beta
         self.clip_range = clip_range
 
-    def _compute_elpd_loo(self, idata: "az.InferenceData") -> float:
-        """Compute ELPD-LOO using ArviZ.
-
-        Args:
-            idata: ArviZ InferenceData with posterior_predictive and observed_data.
-
-        Returns:
-            ELPD-LOO estimate (sum of pointwise elpd values).
-        """
+    def _compute_elpd_loo(self, idata: az.InferenceData) -> float:
         try:
             import arviz as az
         except ImportError as e:
@@ -49,26 +30,9 @@ class LikelihoodJudge:
         return float(loo_result.elpd_loo)
 
     def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
-        """Compute reward from ELPD.
-
-        Checks for:
-        1. artifacts["idata"] - ArviZ InferenceData for full LOO computation
-        2. artifacts["elpd"] - Pre-computed ELPD value
-
-        Reward = exp(beta * elpd), clipped to prevent overflow.
-
-        Args:
-            task_name: Name of the task (unused in this judge).
-            trajectory: Complete episode trajectory (unused in this judge).
-            artifacts: Should contain "idata" or "elpd" for meaningful reward.
-
-        Returns:
-            Reward with exp(beta * elpd) as total.
-        """
         elpd = 0.0
         elpd_source = "default"
 
-        # prefer full computation from InferenceData
         if "idata" in artifacts:
             try:
                 elpd = self._compute_elpd_loo(artifacts["idata"])

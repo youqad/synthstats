@@ -1,19 +1,10 @@
-"""End-to-end pipeline integration tests.
-
-Tests the full pipeline from task creation to loss computation:
-- Task -> Rollout -> Trajectory -> Loss
-- Thought masking integration
-- Boxing codec integration
-- SubTB loss numerical stability
-"""
+"""End-to-end pipeline integration tests."""
 
 import pytest
 import torch
 
 
 class TestPipelineIntegration:
-    """Test full pipeline from task to loss."""
-
     def test_task_to_loss_pipeline(self):
         """Full pipeline from task creation to loss computation."""
         import torch.nn as nn
@@ -21,10 +12,9 @@ class TestPipelineIntegration:
         from synthstats.policies.hf_policy import MockPolicy
         from synthstats.runtime.codecs import JSONToolCodec
         from synthstats.runtime.rollout import RolloutConfig, rollout_episode
-        from synthstats.training.losses.tb_loss import subtb_loss
-        from synthstats.training.trainer import ToyJudge, ToyTask
+        from synthstats.train.objectives.losses import subtb_loss
+        from tests.fixtures import ToyJudge, ToyTask
 
-        # 1. create components
         policy = MockPolicy(
             fixed_text='{"answer": "42"}',
             fixed_token_ids=[1, 2, 3],
@@ -34,7 +24,6 @@ class TestPipelineIntegration:
         codec = JSONToolCodec()
         judge = ToyJudge()
 
-        # 2. collect trajectory
         cfg = RolloutConfig(max_steps=5)
         traj = rollout_episode(
             task=task,
@@ -45,8 +34,6 @@ class TestPipelineIntegration:
             cfg=cfg,
         )
 
-        # 3. prepare batch tensors
-        # flatten token logprobs from trajectory
         all_logprobs = []
         all_mask = []
         for logprobs, mask in zip(traj.token_logprobs, traj.loss_mask, strict=False):
@@ -59,7 +46,6 @@ class TestPipelineIntegration:
             log_rewards = torch.tensor([traj.reward.total]).log()
             logZ = nn.Parameter(torch.tensor(0.0))
 
-            # 4. compute loss
             loss = subtb_loss(log_probs, loss_mask, log_rewards, logZ)
 
             assert loss.dim() == 0  # scalar
@@ -73,8 +59,8 @@ class TestPipelineIntegration:
         from synthstats.policies.hf_policy import MockPolicy
         from synthstats.runtime.codecs import JSONToolCodec
         from synthstats.runtime.rollout import RolloutConfig, rollout_episode
-        from synthstats.training.losses.tb_loss import subtb_loss
-        from synthstats.training.trainer import ToyJudge, ToyTask
+        from synthstats.train.objectives.losses import subtb_loss
+        from tests.fixtures import ToyJudge, ToyTask
 
         policy = MockPolicy(
             fixed_text='{"answer": "x"}',
@@ -83,7 +69,6 @@ class TestPipelineIntegration:
         )
         cfg = RolloutConfig(max_steps=3)
 
-        # collect multiple trajectories
         trajectories = []
         for _ in range(4):
             traj = rollout_episode(
@@ -96,7 +81,6 @@ class TestPipelineIntegration:
             )
             trajectories.append(traj)
 
-        # build batch
         batch_logprobs = []
         batch_masks = []
         log_rewards = []
@@ -111,7 +95,6 @@ class TestPipelineIntegration:
             batch_masks.append(flat_mask)
             log_rewards.append(max(traj.reward.total, 1e-10))
 
-        # pad to same length
         max_len = max(len(lp) for lp in batch_logprobs)
         for i in range(len(batch_logprobs)):
             pad_len = max_len - len(batch_logprobs[i])
@@ -130,8 +113,6 @@ class TestPipelineIntegration:
 
 
 class TestThoughtMaskIntegration:
-    """Test thought masking integrates with training."""
-
     def test_find_think_blocks(self):
         """find_think_blocks detects thinking sections."""
         from synthstats.modeling.thought_mask import find_think_blocks
@@ -211,8 +192,6 @@ class TestThoughtMaskIntegration:
 
 
 class TestBoxingCodecIntegration:
-    """Test Boxing codec parses actions correctly."""
-
     def test_boxing_codec_parses_tool_call(self):
         """Boxing codec parses tool_call format."""
         from synthstats.core.types import ToolCall
@@ -240,15 +219,15 @@ class TestBoxingCodecIntegration:
         assert isinstance(action, Program)
         assert "pm.Model" in action.code
 
-    def test_boxing_codec_returns_none_for_invalid(self):
-        """Boxing codec returns None for unparseable text."""
+    def test_boxing_codec_raises_for_invalid(self):
+        """Boxing codec raises ParseError for unparseable text."""
+        from synthstats.runtime.codecs import ParseError
         from synthstats.tasks.boxing.codecs import BoxingCodec
 
         codec = BoxingCodec()
 
-        action = codec.parse("This is just regular text with no action markup")
-
-        assert action is None
+        with pytest.raises(ParseError):
+            codec.parse("This is just regular text with no action markup")
 
     def test_boxing_codec_format_tool_call(self):
         """Boxing codec formats ToolCall to text."""
@@ -258,28 +237,26 @@ class TestBoxingCodecIntegration:
         codec = BoxingCodec()
         action = ToolCall(name="query", input={"x": 1}, raw="")
 
-        text = codec.format(action)
+        text = codec.render(action)
 
         assert "<tool_call>" in text
         assert '"name": "query"' in text
 
-    def test_boxing_codec_format_program(self):
-        """Boxing codec formats Program to text."""
+    def test_boxing_codec_render_program(self):
+        """Boxing codec renders Program to text."""
         from synthstats.core.types import Program
         from synthstats.tasks.boxing.codecs import BoxingCodec
 
         codec = BoxingCodec()
         action = Program(code="print('hello')", language="pymc")
 
-        text = codec.format(action)
+        text = codec.render(action)
 
         assert "<submit_program>" in text
         assert "print('hello')" in text
 
 
 class TestJSONCodecIntegration:
-    """Test JSON codec integration."""
-
     def test_json_codec_parses_tool(self):
         """JSONToolCodec parses tool JSON."""
         from synthstats.core.types import ToolCall
@@ -331,13 +308,11 @@ class TestJSONCodecIntegration:
 
 
 class TestSubTBLossIntegration:
-    """Test SubTB loss function properties."""
-
     def test_subtb_loss_scalar_output(self):
         """SubTB loss returns scalar tensor."""
         import torch.nn as nn
 
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3, -0.2]])
         loss_mask = torch.ones(1, 3, dtype=torch.bool)
@@ -353,7 +328,7 @@ class TestSubTBLossIntegration:
         """Gradient flows through SubTB loss to logZ."""
         import torch.nn as nn
 
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -370,7 +345,7 @@ class TestSubTBLossIntegration:
         """Loss mask excludes tokens from loss computation."""
         import torch.nn as nn
 
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0, -1.0]])
         log_rewards = torch.tensor([0.0])
@@ -384,17 +359,15 @@ class TestSubTBLossIntegration:
         mask_one = torch.tensor([[True, False, False]])
         loss_one = subtb_loss(log_probs, mask_one, log_rewards, logZ)
 
-        # different masks should give different losses
-        # (unless they happen to balance out, which is unlikely)
-        # we just check both are valid
         assert not torch.isnan(loss_all)
         assert not torch.isnan(loss_one)
+        assert loss_all != loss_one
 
     def test_subtb_loss_handles_zero_reward(self):
         """SubTB loss handles zero reward (clamped to small positive)."""
         import torch.nn as nn
 
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -411,7 +384,7 @@ class TestSubTBLossIntegration:
         """SubTB loss averages over batch dimension."""
         import torch.nn as nn
 
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3], [-0.2, -0.4]])
         loss_mask = torch.ones(2, 2, dtype=torch.bool)
@@ -427,7 +400,7 @@ class TestSubTBLossIntegration:
         """SubTB loss clamps extreme residuals."""
         import torch.nn as nn
 
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         # extreme log probs that would cause numerical issues
         log_probs = torch.tensor([[-100.0, -100.0]])
@@ -442,8 +415,6 @@ class TestSubTBLossIntegration:
 
 
 class TestTrajectoryDatastructure:
-    """Test Trajectory dataclass integration."""
-
     def test_trajectory_fields(self):
         """Trajectory has all required fields."""
         from synthstats.core.types import Message, Reward, Trajectory

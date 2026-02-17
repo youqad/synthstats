@@ -1,21 +1,15 @@
-"""SkyRL-compatible text environment wrapper for SynthStats tasks.
+"""SkyRL BaseTextEnv wrapper for SynthStats tasks.
 
-This module bridges SynthStats Task protocol to SkyRL's BaseTextEnv interface.
-It enables SynthStats tasks to be used with SkyRL's training infrastructure.
-
-The wrapper:
-- Converts SynthStats Message objects to SkyRL conversation format
-- Parses action text via codec and executes tools
-- Calls task.step() and returns SkyRL-compatible output
-
-Import-safe: works even without SkyRL installed.
+Bridges Task/ActionCodec/Executor to SkyRL's conversation interface.
+Import-safe: works without SkyRL installed.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from synthstats.core.executor import Executor, ToolResult
+from synthstats.core.constants import REWARD_FLOOR_DEFAULT
+from synthstats.core.executor import Executor, ToolResult, execute_tool_call
 from synthstats.core.task import Task
 from synthstats.core.types import Message, ToolCall
 from synthstats.runtime.codecs import ActionCodec, ParseError
@@ -34,18 +28,7 @@ except Exception:
 
 
 class SynthStatsTextEnv(BaseTextEnv):  # type: ignore[misc]
-    """SkyRL-compatible text environment wrapping a SynthStats Task.
-
-    This bridges the SynthStats Task/ActionCodec/Executor stack to SkyRL's
-    BaseTextEnv interface for use with skyrl-train.
-
-    Args:
-        task: SynthStats Task instance (must implement Task protocol)
-        codec: ActionCodec for parsing LLM output to Action
-        executors: Dict mapping tool names to Executor instances (optional)
-        max_turns: Maximum number of turns per episode
-        reward_floor: Minimum reward value (for log-reward stability)
-    """
+    """SkyRL BaseTextEnv wrapping a SynthStats Task."""
 
     def __init__(
         self,
@@ -54,9 +37,8 @@ class SynthStatsTextEnv(BaseTextEnv):  # type: ignore[misc]
         executors: dict[str, Executor] | None = None,
         *,
         max_turns: int = 20,
-        reward_floor: float = 1e-4,
+        reward_floor: float = REWARD_FLOOR_DEFAULT,
     ) -> None:
-        # call parent __init__ if available
         if hasattr(super(), "__init__"):
             super().__init__()
 
@@ -66,7 +48,6 @@ class SynthStatsTextEnv(BaseTextEnv):  # type: ignore[misc]
         self.max_turns = max_turns
         self.reward_floor = reward_floor
 
-        # episode state
         self.chat_history: ConversationType = []
         self._state: Any = None
         self._turns: int = 0
@@ -91,7 +72,6 @@ class SynthStatsTextEnv(BaseTextEnv):  # type: ignore[misc]
         # reset task and get initial state
         self._state = self.task.reset()
 
-        # get initial observations from task
         messages = self.task.observe(self._state)
 
         # convert to SkyRL conversation format
@@ -191,7 +171,6 @@ class SynthStatsTextEnv(BaseTextEnv):  # type: ignore[misc]
                 "metadata": info,
             }
 
-        # get next observation
         next_messages = self.task.observe(self._state)
         new_observations: list[dict[str, str]] = []
         for msg in next_messages:
@@ -212,24 +191,14 @@ class SynthStatsTextEnv(BaseTextEnv):  # type: ignore[misc]
         }
 
     def _execute_tool(self, action: ToolCall) -> ToolResult:
-        """Execute a tool call using the appropriate executor."""
-        executor = self.executors.get(action.name)
-        if executor is None:
-            available = list(self.executors.keys())
-            return ToolResult(
-                output=f"Error: Unknown tool '{action.name}'. Available: {available}",
-                success=False,
-                error=f"Unknown tool: {action.name}",
-            )
-
-        try:
-            return executor.execute(action, timeout_s=30.0)
-        except Exception as e:
-            return ToolResult(
-                output=f"Error executing {action.name}: {e}",
-                success=False,
-                error=str(e),
-            )
+        """Execute a tool call."""
+        return execute_tool_call(
+            action,
+            self.executors,
+            timeout_s=30.0,
+            unknown_prefix="Error: ",
+            unknown_available_label="Available",
+        )
 
     @staticmethod
     def _message_to_dict(msg: Message) -> dict[str, str]:

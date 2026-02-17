@@ -8,7 +8,7 @@ import torch
 from hypothesis import strategies as st
 
 from synthstats.core.types import FinalAnswer, Message, Program, Reward, ToolCall, Trajectory
-from synthstats.training.buffers import BufferEntry
+from synthstats.train.loop.replay import BufferEntry
 
 
 @st.composite

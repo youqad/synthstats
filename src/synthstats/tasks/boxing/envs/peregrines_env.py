@@ -11,7 +11,11 @@ This is the standard discrete-time logistic growth model where:
 Observations include Gaussian noise. The agent queries years to observe counts.
 """
 
+from __future__ import annotations
+
 import random
+
+from synthstats.tasks.boxing.envs.query_parsing import parse_query_int
 
 
 class PeregrinesEnv:
@@ -73,16 +77,13 @@ class PeregrinesEnv:
         Returns:
             Result string with observed population count, or error message.
         """
-        if "year=" in query:
-            try:
-                year = int(query.split("year=")[1].split()[0])
-                if year < 0:
-                    return "Invalid query. Year must be non-negative."
+        year = parse_query_int(query, "year")
+        if year is None:
+            return "Invalid query. Use format: year=<integer>"
+        if year < 0:
+            return "Invalid query. Year must be non-negative."
 
-                true_pop = self._get_population(year)
-                noise = self.rng.gauss(0, self.noise_std)
-                observed = max(0, round(true_pop + noise))
-                return f"population={observed}"
-            except (ValueError, IndexError):
-                pass
-        return "Invalid query. Use format: year=<integer>"
+        true_pop = self._get_population(year)
+        noise = self.rng.gauss(0, self.noise_std)
+        observed = max(0, round(true_pop + noise))
+        return f"population={observed}"

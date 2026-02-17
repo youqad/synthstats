@@ -11,7 +11,11 @@ True model:
 The agent queries school IDs to observe effects with their standard errors.
 """
 
+from __future__ import annotations
+
 import random
+
+from synthstats.tasks.boxing.envs.query_parsing import parse_query_int
 
 
 class EightSchoolsEnv:
@@ -60,15 +64,13 @@ class EightSchoolsEnv:
         Returns:
             Result string with effect estimate and standard error, or error message.
         """
-        if "school=" in query:
-            try:
-                school_id = int(query.split("school=")[1].split()[0])
-                if 1 <= school_id <= 8:
-                    idx = school_id - 1
-                    effect = self.observed_effects[idx]
-                    se = self.KNOWN_SES[idx]
-                    return f"effect={effect:.1f}, se={se:.1f}"
-                return "Invalid school ID. Use 1-8."
-            except (ValueError, IndexError):
-                pass
-        return "Invalid query. Use format: school=<1-8>"
+        school_id = parse_query_int(query, "school")
+        if school_id is None:
+            return "Invalid query. Use format: school=<1-8>"
+        if not 1 <= school_id <= 8:
+            return "Invalid school ID. Use 1-8."
+
+        idx = school_id - 1
+        effect = self.observed_effects[idx]
+        se = self.KNOWN_SES[idx]
+        return f"effect={effect:.1f}, se={se:.1f}"

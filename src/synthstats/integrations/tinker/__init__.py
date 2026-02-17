@@ -1,13 +1,4 @@
-"""Tinker API integration.
-
-Provides adapters for using Tinker's training API with SynthStats.
-
-Key components:
-- TinkerPolicy: Wraps Tinker.sample() to match HFPolicy interface
-- TinkerTrainer: Uses forward_backward_custom() with TB loss
-- TinkerConfig: Configuration dataclass
-- trajectories_to_tinker_batch: Convert Trajectory objects to Tinker format
-"""
+"""Tinker API adapters."""
 
 from synthstats.integrations.tinker.adapter import (
     MockTinkerClient,
@@ -24,8 +15,18 @@ from synthstats.integrations.tinker.adapter import (
     require_tinker,
     trajectories_to_tinker_batch,
 )
+from synthstats.integrations.tinker.eos_extraction import (
+    extract_eos_from_tinker_result,
+    extract_eos_from_topk,
+    get_default_eos_token_ids,
+)
+from synthstats.integrations.tinker.losses import (
+    compute_combined_tb_subtb_loss,
+    compute_vanilla_tb_loss,
+)
 
 __all__ = [
+    # adapter
     "MockTinkerClient",
     "MockTinkerTrainingClient",
     "MockTokenizer",
@@ -36,7 +37,13 @@ __all__ = [
     "TinkerTrainer",
     "TurnBoundary",
     "_build_turn_mask",
+    "compute_combined_tb_subtb_loss",
+    "compute_vanilla_tb_loss",
     "is_tinker_available",
     "require_tinker",
     "trajectories_to_tinker_batch",
+    # EOS extraction
+    "extract_eos_from_tinker_result",
+    "extract_eos_from_topk",
+    "get_default_eos_token_ids",
 ]

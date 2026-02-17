@@ -1,37 +1,20 @@
-"""Native BoxingGym environment using SkyRL's BaseTextEnv.
+"""BoxingGym environment for SkyRL's BaseTextEnv.
 
-This is the canonical environment for BoxingGym tasks, integrating:
-- Task: State machine for Boxing environments (Dugongs, Peregrines, etc.)
-- ActionCodec: Parsing LLM output to structured actions
-- Executors: PyMC sandbox, query execution
-- Judge: Reward computation (ELPD-LOO, format checking)
-
-Usage:
-    from synthstats.envs import BoxingEnv
-    from synthstats.tasks.boxing import DugongsTask
-    from synthstats.runtime.codecs import BoxingCodec
-    from synthstats.judges import LikelihoodJudge
-
-    env = BoxingEnv(
-        task=DugongsTask(),
-        codec=BoxingCodec(),
-        executors={"pymc": PyMCExecutor()},
-        judge=LikelihoodJudge(),
-    )
-
-    obs, info = env.init()
-    while True:
-        action = policy.generate(obs)
-        result = env.step(action)
-        if result["done"]:
-            break
+Wraps Task + ActionCodec + Executor + Judge into a single SkyRL-compatible env.
+Import-safe: works without SkyRL installed.
 """
 
 from __future__ import annotations
 
+import ast
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from synthstats.core.constants import REWARD_FLOOR_DEFAULT
+from synthstats.core.executor import execute_tool_call
+from synthstats.core.process import cleanup_process_group
+from synthstats.executors.pymc_sandbox import check_code_safety
 
 if TYPE_CHECKING:
     from synthstats.core.executor import Executor, ToolResult
@@ -59,34 +42,62 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _rewrite_pm_sample_calls(code: str) -> str:
+    """Rewrite pm.sample calls to bounded settings using AST (not regex)."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+
+    class _SampleCallRewriter(ast.NodeTransformer):
+        def visit_Call(self, node: ast.Call) -> ast.AST:
+            self.generic_visit(node)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "pm"
+                and node.func.attr == "sample"
+            ):
+                args = list(node.args)
+                keywords = [
+                    kw for kw in node.keywords if kw.arg not in {"draws", "chains", "cores"}
+                ]
+
+                if args:
+                    args[0] = ast.Constant(value=200)
+                else:
+                    keywords.append(ast.keyword(arg="draws", value=ast.Constant(value=200)))
+
+                keywords.append(ast.keyword(arg="chains", value=ast.Constant(value=2)))
+                keywords.append(ast.keyword(arg="cores", value=ast.Constant(value=1)))
+                node.args = args
+                node.keywords = keywords
+            return node
+
+    try:
+        rewritten = _SampleCallRewriter().visit(tree)
+        ast.fix_missing_locations(rewritten)
+        return ast.unparse(rewritten)
+    except Exception:
+        return code
+
+
 @dataclass
 class BoxingEnvConfig:
     """Configuration for BoxingEnv."""
 
     max_turns: int = 20
-    reward_floor: float = 1e-4
+    reward_floor: float = REWARD_FLOOR_DEFAULT
     reward_scale: float = 1.0
     include_format_reward: bool = True
     format_reward_weight: float = 0.1
 
 
 class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
-    """Native BoxingGym environment for SkyRL training.
+    """BoxingGym env with integrated Judge for automatic reward computation.
 
-    This environment wraps a BoxingGym Task with integrated Judge support
-    for computing rewards. It implements SkyRL's BaseTextEnv interface.
-
-    Key differences from SynthStatsTextEnv:
-    - Judge is integrated and called automatically on episode completion
-    - Reward computation includes format checking and likelihood scoring
-    - Trajectory history is maintained for Judge input
-
-    Args:
-        task: BoxingGym Task instance
-        codec: ActionCodec for parsing LLM output
-        executors: Dict mapping tool names to Executor instances
-        judge: Judge instance for reward computation (optional)
-        config: BoxingEnvConfig with hyperparameters
+    Unlike SynthStatsTextEnv, calls Judge on episode completion and maintains
+    trajectory history for reward scoring.
     """
 
     def __init__(
@@ -106,7 +117,6 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         self.judge = judge
         self.config = config or BoxingEnvConfig()
 
-        # set max_turns from config
         self.max_turns = self.config.max_turns
 
         # episode state
@@ -134,13 +144,9 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         self._trajectory_messages = []
         self._artifacts = {}
 
-        # reset task
         self._state = self.task.reset()
-
-        # get initial observations
         messages = self.task.observe(self._state)
 
-        # build chat history
         if prompt:
             self.chat_history = list(prompt)
         else:
@@ -180,7 +186,6 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         self.chat_history.append(assistant_msg)
         self._trajectory_messages.append(assistant_msg)
 
-        # check turn limit
         if self._turns > self.max_turns:
             self._done = True
             reward = self._compute_final_reward()
@@ -206,7 +211,7 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
                 "metadata": {"parse_error": str(e)},
             }
 
-        # execute tool calls (skip "query" — handled by task.step)
+        # execute tool calls (skip "query", handled by task.step)
         if isinstance(parsed_action, ToolCall) and parsed_action.name != "query":
             result = self._execute_tool(parsed_action)
             tool_msg = {"role": "tool", "content": result.output}
@@ -215,7 +220,6 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
             if not result.success:
                 self._artifacts["tool_error"] = result.error
 
-        # step task
         step_result = self.task.step(self._state, parsed_action)
         self._state = step_result.next_state
         self._artifacts.update(step_result.artifacts)
@@ -232,7 +236,6 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
                 "metadata": self._artifacts,
             }
 
-        # get next observation
         next_messages = self.task.observe(self._state)
         new_observations: list[dict[str, str]] = []
         for msg in next_messages:
@@ -252,25 +255,18 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
 
     def _execute_tool(self, action: ToolCall) -> ToolResult:
         """Execute a tool call."""
-        from synthstats.core.executor import ToolResult
+        return execute_tool_call(
+            action,
+            self.executors,
+            timeout_s=30.0,
+            unknown_prefix="",
+            unknown_available_label="Available",
+        )
 
-        executor = self.executors.get(action.name)
-        if executor is None:
-            available = list(self.executors.keys())
-            return ToolResult(
-                output=f"Unknown tool '{action.name}'. Available: {available}",
-                success=False,
-                error=f"Unknown tool: {action.name}",
-            )
-
-        try:
-            return executor.execute(action, timeout_s=30.0)
-        except Exception as e:
-            return ToolResult(
-                output=f"Error executing {action.name}: {e}",
-                success=False,
-                error=str(e),
-            )
+    @staticmethod
+    def _force_pymc_sample_limits(code: str) -> str:
+        """Public helper for tests: rewrite pm.sample calls to fixed bounded settings."""
+        return _rewrite_pm_sample_calls(code)
 
     def _execute_program_for_elpd(self, code: str) -> float | None:
         """Execute PyMC program in subprocess and compute ELPD-LOO.
@@ -278,18 +274,17 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         Uses rlimits to prevent runaway processes (30s CPU, 2GB memory).
         """
         import os as _os
-        import re as _re
-        import signal
         import subprocess
         import sys
         import tempfile
 
+        is_safe, error = check_code_safety(code)
+        if not is_safe:
+            logger.warning("AST safety check failed: %s", error)
+            return None
+
         # reduce sample count for training speed
-        modified = _re.sub(
-            r"pm\.sample\((\d+)",
-            "pm.sample(200, chains=2, cores=1",
-            code,
-        )
+        modified = self._force_pymc_sample_limits(code)
 
         elpd_snippet = """
 # --- synthstats: compute ELPD-LOO ---
@@ -330,6 +325,7 @@ except Exception as _e:
                 "ANTHROPIC_API_KEY",
                 "HF_TOKEN",
                 "WANDB_API_KEY",
+                "TINKER_API_KEY",
             ]:
                 sub_env.pop(var, None)
 
@@ -348,36 +344,11 @@ except Exception as _e:
                 try:
                     stdout, stderr = proc.communicate(input=full_code, timeout=180.0)
                 except subprocess.TimeoutExpired:
-                    # kill entire process group (start_new_session=True creates new pgid)
-                    # NOTE: Avoid hanging in cleanup if something goes wrong.
-                    try:
-                        if hasattr(_os, "killpg") and hasattr(_os, "getpgid"):
-                            pgid = _os.getpgid(proc.pid)
-                            for sig in (signal.SIGTERM, signal.SIGKILL):
-                                try:
-                                    _os.killpg(pgid, sig)
-                                except (ProcessLookupError, OSError):
-                                    pass
-                                try:
-                                    proc.wait(timeout=2.0)
-                                    break
-                                except subprocess.TimeoutExpired:
-                                    continue
-                        else:
-                            proc.kill()
-                            proc.wait(timeout=2.0)
-                    except Exception:
-                        # best-effort fallback: kill the parent process
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-                        try:
-                            proc.wait(timeout=2.0)
-                        except Exception:
-                            pass
+                    cleanup_process_group(proc)
                     logger.warning("Program timed out (180s)")
                     return None
+                else:
+                    cleanup_process_group(proc)
 
             for line in stdout.split("\n"):
                 if line.startswith("__ELPD__:"):
@@ -395,9 +366,62 @@ except Exception as _e:
 
         return None
 
+    def score_program(self, program: str) -> float:
+        """Score a standalone program using the configured Judge.
+
+        This is used for offline scoring, e.g. SFT warm-start reward computation.
+
+        The scoring path mirrors online episodes:
+        1. Execute the program to compute ELPD (best-effort).
+        2. Delegate reward shaping/clipping to the configured Judge.
+        3. Apply environment-level `reward_scale` and `reward_floor`.
+
+        Returns:
+            Final reward (after env reward scaling and reward floor).
+        """
+        # Compute ELPD via the same subprocess path used during online episodes.
+        elpd = self._execute_program_for_elpd(program)
+        if elpd is None:
+            # If we cannot compute ELPD, treat as a failure and return a floor reward.
+            return float(self.config.reward_floor)
+
+        if self.judge is None:
+            logger.warning("score_program called without a Judge; returning reward_floor")
+            return float(self.config.reward_floor)
+
+        from synthstats.core.types import Reward
+
+        artifacts: dict[str, Any] = {"program": program, "elpd": elpd}
+
+        # Judge only needs messages and artifacts. Provide an empty trajectory stub.
+        trajectory_stub = type(
+            "TrajectoryStub",
+            (),
+            {
+                "messages": [],
+                "reward": Reward(0.0, {}, {}),
+                "token_ids": [],
+                "token_logprobs": [],
+                "loss_mask": [],
+                "eos_logprobs": [],
+            },
+        )()
+
+        try:
+            reward_obj = self.judge.score(
+                task_name=self.task.name,
+                trajectory=trajectory_stub,  # type: ignore
+                artifacts=artifacts,
+            )
+            reward = reward_obj.total * self.config.reward_scale
+        except Exception as e:
+            logger.warning(f"Judge scoring failed: {e}")
+            reward = 0.0
+
+        return max(float(reward), self.config.reward_floor)
+
     def _compute_final_reward(self) -> float:
         """Compute final reward using Judge if available."""
-        # execute submitted program to compute ELPD
         if "program" in self._artifacts and "elpd" not in self._artifacts:
             elpd = self._execute_program_for_elpd(self._artifacts["program"])
             if elpd is not None:
@@ -416,8 +440,7 @@ except Exception as _e:
             Message(role=m["role"], content=m["content"]) for m in self._trajectory_messages
         ]
 
-        # create trajectory stub for Judge
-        # Judge only needs messages and artifacts
+        # judge only needs messages and artifacts
         trajectory_stub = type(
             "TrajectoryStub",
             (),

@@ -1,11 +1,6 @@
-"""SkyRL registry synchronization and loss registration.
+"""SkyRL loss registration and Ray worker sync.
 
-All SkyRL-specific code is isolated here. This module:
-- Checks SkyRL availability
-- Registers TB/SubTB losses with SkyRL's policy_loss registry
-- Syncs registries across Ray workers
-
-This module is import-safe: works without SkyRL installed.
+Import-safe: works without SkyRL installed.
 """
 
 from __future__ import annotations
@@ -41,7 +36,7 @@ def register_losses() -> None:
 
     from skyrl.trainer.policy_loss import register_policy_loss
 
-    from synthstats.training.losses.trajectory_balance import (
+    from synthstats.train.objectives.trajectory_balance import (
         compute_modified_subtb_loss,
         compute_trajectory_balance_loss,
     )

@@ -1,9 +1,6 @@
-"""Trajectory collectors for SynthStats.
+"""Collectors package.
 
-Provides SimpleCollector for on-policy trajectory collection and
-batch building utilities for GFlowNet training.
+Canonical implementations live in train/loop/:
+- TrajectoryCollector, CollectedTrajectory -> train.loop.collectors
+- build_subtb_batch, build_tinker_batch -> train.loop.batching
 """
-
-from synthstats.collectors.simple_collector import SimpleCollector, build_subtb_batch
-
-__all__ = ["SimpleCollector", "build_subtb_batch"]

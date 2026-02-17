@@ -1,8 +1,6 @@
-"""LLM-as-critic judge for process reward modeling.
+"""LLM-as-critic judge for process reward modeling."""
 
-Uses an LLM to critique probabilistic programs and provide reward signals
-based on code quality, statistical validity, and alignment with the problem.
-"""
+from __future__ import annotations
 
 import re
 from typing import Any
@@ -46,17 +44,8 @@ DEFAULT_PROMPT_TEMPLATE = (
 
 
 class LLMCriticJudge:
-    """Judge that uses an LLM to critique programs.
-
-    Uses LiteLLM for model access, supporting any provider (OpenAI, Anthropic, etc.).
-
-    Args:
-        model_name: LiteLLM model identifier (e.g., "gpt-4o-mini", "claude-3-haiku-20240307")
-        temperature: Sampling temperature for critique
-        num_samples: Number of samples for uncertainty estimation (averages scores)
-        prompt_template: Optional custom prompt template with {task_name} and {program} placeholders
-        default_score: Score to return when API calls fail (default 0.5 = neutral)
-    """
+    """Uses an LLM via LiteLLM to critique programs on code quality,
+    statistical validity, and problem alignment."""
 
     def __init__(
         self,
@@ -73,30 +62,15 @@ class LLMCriticJudge:
         self.default_score = default_score
 
     def _build_prompt(self, program: str, task_name: str) -> str:
-        """Build critique prompt from template."""
         return self.prompt_template.format(task_name=task_name, program=program)
 
     def _parse_critique(self, response: str) -> dict[str, float]:
-        """Parse LLM response into reward components.
-
-        Expected format:
-            SCORES:
-            code_quality: 0.8
-            statistical_validity: 0.7
-            problem_alignment: 0.9
-            RATIONALE: ...
-
-        Returns:
-            Dict with code_quality, statistical_validity, problem_alignment scores.
-            Missing or invalid scores default to self.default_score.
-        """
         result = {
             "code_quality": self.default_score,
             "statistical_validity": self.default_score,
             "problem_alignment": self.default_score,
         }
 
-        # extract SCORES section
         scores_match = re.search(
             r"SCORES:\s*(.*?)(?:RATIONALE:|$)", response, re.DOTALL | re.IGNORECASE
         )
@@ -105,7 +79,6 @@ class LLMCriticJudge:
 
         scores_text = scores_match.group(1)
 
-        # parse each score line
         for key in result:
             pattern = rf"{key}:\s*(-?[\d.]+)"
             match = re.search(pattern, scores_text, re.IGNORECASE)
@@ -119,7 +92,6 @@ class LLMCriticJudge:
         return result
 
     def _call_llm(self, prompt: str) -> str | None:
-        """Call LLM via LiteLLM. Returns None on failure."""
         try:
             import litellm
         except ImportError:
@@ -138,23 +110,9 @@ class LLMCriticJudge:
             return None
 
     def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict[str, Any]) -> Reward:
-        """Score trajectory using LLM critique.
-
-        Extracts program from artifacts, prompts LLM for critique,
-        parses response into reward components.
-
-        Args:
-            task_name: Name of the task for context in the prompt.
-            trajectory: Complete episode trajectory (unused, but required by protocol).
-            artifacts: Should contain "program" key with code to critique.
-
-        Returns:
-            Reward with average of component scores as total.
-        """
         program = artifacts.get("program", "")
 
         if not program.strip():
-            # no program to critique
             return Reward(
                 total=0.0,
                 components={
@@ -167,7 +125,6 @@ class LLMCriticJudge:
 
         prompt = self._build_prompt(program, task_name)
 
-        # collect samples
         all_scores: list[dict[str, float]] = []
         responses: list[str] = []
 
@@ -178,7 +135,6 @@ class LLMCriticJudge:
                 scores = self._parse_critique(response)
                 all_scores.append(scores)
 
-        # handle API failure
         if not all_scores:
             return Reward(
                 total=self.default_score,
@@ -190,7 +146,6 @@ class LLMCriticJudge:
                 info={"error": "llm_call_failed"},
             )
 
-        # average across samples
         avg_scores = {
             "code_quality": sum(s["code_quality"] for s in all_scores) / len(all_scores),
             "statistical_validity": sum(s["statistical_validity"] for s in all_scores)
@@ -198,7 +153,6 @@ class LLMCriticJudge:
             "problem_alignment": sum(s["problem_alignment"] for s in all_scores) / len(all_scores),
         }
 
-        # total is mean of component scores
         total = sum(avg_scores.values()) / len(avg_scores)
 
         info: dict[str, Any] = {"num_samples": len(all_scores)}
