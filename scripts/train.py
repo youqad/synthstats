@@ -39,8 +39,8 @@ from omegaconf import DictConfig, OmegaConf
 from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
 
 # register TB loss on import (SkyRL registry-based)
-from synthstats.training.losses import trajectory_balance as _trajectory_balance  # noqa: F401
-from synthstats.training.tb_trainer import SKYRL_AVAILABLE, LogZModule
+from synthstats.train.objectives import trajectory_balance as _trajectory_balance  # noqa: F401
+from synthstats.train.runners.tb_trainer import SKYRL_AVAILABLE, LogZModule
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def run_local_training(cfg: DictConfig) -> dict[str, float]:
     This is NOT the full SkyRL training - it's a simplified loop for
     testing the TB loss and environment without vLLM/Ray infrastructure.
     """
-    from synthstats.training.losses.tb_loss import subtb_loss
+    from synthstats.train.objectives.losses import subtb_loss
 
     logger.info("Running local training mode (simplified, no vLLM/Ray)")
 

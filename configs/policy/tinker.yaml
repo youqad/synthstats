@@ -1,10 +1,7 @@
-# Tinker API Policy
-#
-# Uses Tinker API for generation.
-
-_target_: synthstats.integrations.tinker_adapter.TinkerPolicy
+# Tinker API policy config
+_target_: synthstats.integrations.tinker.adapter.TinkerPolicy
 config:
-  _target_: synthstats.integrations.tinker_adapter.TinkerConfig
+  _target_: synthstats.integrations.tinker.adapter.TinkerConfig
   api_key: ${oc.env:TINKER_API_KEY,null}
   model: Qwen/Qwen3-4B
   max_tokens: 256

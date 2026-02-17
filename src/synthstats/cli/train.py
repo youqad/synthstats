@@ -5,13 +5,13 @@ Unified entrypoint that dispatches to runners based on config.
 
 Usage:
     # Local PyTorch training
-    synthstats-train runner=local env=boxing_dugongs policy=hf_qwen3_0_6b
+    synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b
 
     # Distributed Ray + SkyRL training
-    synthstats-train runner=skyrl_ray env=boxing_dugongs policy=hf_qwen3_4b
+    synthstats-train runner=skyrl_ray env=dugongs policy=hf_qwen3_4b
 
     # Tinker API backend
-    synthstats-train runner=tinker env=boxing_dugongs policy=tinker
+    synthstats-train runner=tinker env=dugongs policy=tinker
 
     # Or via module:
     uv run python -m synthstats.cli.train runner=local
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_runner(cfg: DictConfig) -> Runner:
-    """Factory to create the appropriate runner from config.
+    """Create runner from config.
 
     Args:
         cfg: Full Hydra configuration
@@ -68,7 +68,7 @@ def get_runner(cfg: DictConfig) -> Runner:
 def main(cfg: DictConfig) -> float | None:
     """Main training entrypoint.
 
-    Dispatches to the appropriate runner based on config.
+    Dispatches to the configured runner.
 
     Args:
         cfg: Hydra configuration

@@ -1,25 +1,5 @@
-# Checkpoint configuration for training resumability
-#
-# Usage:
-#   # enable checkpointing to output directory
-#   uv run python scripts/train_skyrl.py checkpoint.save_path='${output_dir}/checkpoints'
-#
-#   # resume from checkpoint
-#   uv run python scripts/train_skyrl.py checkpoint.resume_from=/path/to/checkpoint.pt
-#
-#   # custom interval and retention
-#   uv run python scripts/train_skyrl.py checkpoint.save_interval=50 checkpoint.keep_last_n=5
-
-# path to save checkpoints (null = no saving)
-# use ${output_dir}/checkpoints to save alongside run outputs
-save_path: null
-
-# save checkpoint every N training steps
-save_interval: 100
-
-# path to resume training from (null = start fresh)
+# Default checkpoint schema (aligned with train/checkpointing/torch_full.py)
+save_dir: checkpoints
+every_steps: 100
+keep_last: 3
 resume_from: null
-
-# number of checkpoints to keep (older ones are deleted)
-# set to null to keep all checkpoints
-keep_last_n: 3

@@ -1,13 +1,13 @@
-# death_process environment config
+# surgical environment config
 _target_: synthstats.envs.boxing_env.BoxingEnv
 
 # Logical BoxingGym env identifier
-name: death_process
+name: surgical
 max_steps: 20
 
 task:
   _target_: synthstats.tasks.boxing.task.BoxingTask
-  env_name: death_process
+  env_name: surgical
   max_steps: 20
 
 codec:

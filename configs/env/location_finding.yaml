@@ -1,4 +1,26 @@
-# Location finding environment - signal localization
+# location_finding environment config
+_target_: synthstats.envs.boxing_env.BoxingEnv
+
+# Logical BoxingGym env identifier
 name: location_finding
-env_class: boxing_gym.envs.location_finding:Signal
 max_steps: 20
+
+task:
+  _target_: synthstats.tasks.boxing.task.BoxingTask
+  env_name: location_finding
+  max_steps: 20
+
+codec:
+  _target_: synthstats.tasks.boxing.codecs.BoxingCodec
+
+executors:
+  pymc:
+    _target_: synthstats.executors.pymc_sandbox.PyMCExecutor
+
+judge:
+  _target_: synthstats.judges.likelihood.LikelihoodJudge
+  beta: 1.0
+
+config:
+  _target_: synthstats.envs.boxing_env.BoxingEnvConfig
+  max_turns: 20

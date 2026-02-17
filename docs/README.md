@@ -7,29 +7,42 @@ GFlowNet training for PyMC program synthesis. The model learns to sample program
 ```bash
 git clone https://github.com/youqad/synthstats.git
 cd synthstats
-uv sync --extra ml --extra pymc
+uv sync --group dev --extra ml --extra pymc
 ```
 
 ## Training
 
 ```bash
-# basic run (dugongs is the default)
-uv run python scripts/train_skyrl.py model=qwen3_0.6b
+# basic local run (dugongs is the default)
+uv run synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b
 
 # different environment
-uv run python scripts/train_skyrl.py task.env=peregrines model=qwen3_0.6b
+uv run synthstats-train runner=local env=peregrines policy=hf_qwen3_0_6b
 
 # with overrides
-uv run python scripts/train_skyrl.py \
-    task.env=dugongs \
-    model=qwen3_4b \
-    +trainer.batch_size=4 \
-    +trainer.episodes=100
+uv run synthstats-train runner=local env=dugongs policy=hf_qwen3_4b \
+    runner.train.batch_size=4 \
+    runner.train.steps=1000 \
+    logging=wandb
 ```
 
-Available environments: `dugongs`, `peregrines`, `eight_schools`, `surgical`
+SFT warm-start (seed replay with demonstrations):
 
-Available models: `qwen3_0.6b` (fast), `qwen3_4b` (production), `mock` (testing)
+```bash
+uv run synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b \
+    sft_warmstart.enabled=true \
+    sft_warmstart.data_path=/path/to/sft.jsonl \
+    sft_warmstart.compute_rewards=true
+```
+
+Notes:
+- `sft_warmstart.strip_thinking` defaults to `false` (preserves `<think>` as a latent variable for TB/SubTB).
+- Optional knobs: `sft_warmstart.max_examples`, `sft_warmstart.log_clamp=[-700,700]`, `sft_warmstart.show_progress=false`.
+
+Available environments include BoxingGym tasks like `dugongs`, `peregrines`, `eight_schools`, `surgical`.
+See `configs/env/` for the full list.
+
+Available policies: `hf_qwen3_0_6b` (fast), `hf_qwen3_4b` (production), `mock` (testing), `tinker` (API backend)
 
 ## How it works
 
@@ -45,14 +58,14 @@ The key difference from standard RL: we're not maximizing reward, we're matching
 ```
 src/synthstats/
   core/           # protocols: Task, Policy, Executor, Judge
-  envs/           # BoxingGym wrappers
-  policies/       # HFPolicy (transformers + LoRA)
+  cli/            # unified training CLI (synthstats-train)
+  envs/           # BoxingGym wrappers / text environments
+  policies/       # HFPolicy (transformers + LoRA) + mocks
   executors/      # PyMC sandbox
-  training/       # TrainingLoop, SubTB loss, replay buffer
-  trainers/       # SkyRLSubTBTrainer
+  train/          # runner-based training stack (collect → learn → log → checkpoint)
 
 scripts/
-  train_skyrl.py  # main entry point
+  train_skyrl.py  # SkyRL training script
 
 configs/          # Hydra configs for envs, models, training
 ```
@@ -69,13 +82,13 @@ L = (logZ + sum(log_pi) - log_R)^2
 - `log_pi`: sum of token log-probs for generated program
 - `log_R`: log reward from judge
 
-The actual implementation uses SubTB (sub-trajectory balance) which computes this over partial trajectories with geometric weighting. See `training/losses/trajectory_balance.py` for details.
+The actual implementation uses SubTB (sub-trajectory balance) which computes this over partial trajectories with geometric weighting. See `train/objectives/trajectory_balance.py` for details.
 
 The loss pushes `logZ + log_pi` toward `log_R`. When balanced, sampling frequency matches reward.
 
 ## Replay buffer
 
-Uses on-sample re-scoring: stores action sequences only, recomputes log-probs with current policy when sampled. Eliminates off-policy bias that would break the TB objective.
+Uses on-sample re-scoring: stores action sequences only, recomputes log-probs with current policy when sampled. Avoids stale log-probs that would introduce off-policy bias into the TB loss.
 
 ## Tests
 

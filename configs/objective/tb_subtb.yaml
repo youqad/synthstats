@@ -1,0 +1,40 @@
+# TB + partial SubTB objective
+# Reference: https://arxiv.org/abs/2310.04363
+
+type: tb_subtb
+loss_type: tb  # vanilla TB (SubTB via Tinker path)
+
+logZ_init: 0.0
+logZ_lr: 0.01  # 100x model lr per gfn-lm-tuning
+tb_max_residual: 100.0
+
+subtb_alpha: 0.1
+subtb_lambda: 0.9
+log_sparse_reward: null  # auto-scaled by reward_temperature
+
+reward_schedule:
+  start: 1.0
+  end: 0.1
+  horizon: 1000
+  mode: linear  # linear | cosine
+
+exploration:
+  pf_temp_low: 0.5
+  pf_temp_high: 2.0
+  perturb_prob: 0.5
+
+behavior_mix:
+  on_policy: 0.25
+  replay: 0.25
+  perturbed: 0.50
+
+replay_buffer:
+  size: 10000
+  prioritized: true
+  alpha: 1.0
+  on_sample_rescore: true
+
+eos_token_ids: null  # auto-detect from tokenizer
+topk_for_eos: 50
+
+entropy_coef: 0.01

@@ -28,6 +28,8 @@ htmlcov/
 outputs/
 checkpoints/
 wandb/
+runs/
+multirun/
 *.csv
 *.pkl
 *.pt

@@ -30,11 +30,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
-    "hypothesis>=6.100.0",
-    "ruff>=0.9.0",
+    "hypothesis>=6.148.9",
     "mypy>=1.14.0",
+    "pytest>=9.0.2",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
     "ipykernel>=6.30.0",
 ]
 ml = [
@@ -127,5 +127,10 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.148.9",
+    "ipykernel>=6.30.0",
+    "mypy>=1.14.0",
     "pytest>=9.0.2",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
 ]

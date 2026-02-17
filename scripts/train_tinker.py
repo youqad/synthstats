@@ -1,26 +1,14 @@
 #!/usr/bin/env python
 """Tinker API training with SubTB loss on BoxingGym environments.
 
-This script uses Tinker's distributed training infrastructure with the
-trajectories_to_tinker_batch converter and TinkerTrainer.train_step().
-
 Usage:
-    # train on Dugongs with Qwen3-4B
     TINKER_API_KEY=... uv run python scripts/train_tinker.py env=dugongs
-
-    # use different model (update configs/trainer/tinker.yaml)
     uv run python scripts/train_tinker.py env=peregrines trainer.config.model=Qwen/Qwen3-4B
-
-    # mock mode for testing (no API key needed)
     uv run python scripts/train_tinker.py env=dugongs +mock=true
 
 Environment Variables:
     TINKER_API_KEY: Tinker API key (get from https://thinkingmachines.ai/tinker/)
     WANDB_PROJECT: W&B project name (optional)
-
-Note: The TinkerPolicy is used for generation, TinkerTrainer for training.
-Both use the same underlying Tinker service but with different clients
-(SamplingClient vs TrainingClient).
 """
 
 from __future__ import annotations
@@ -41,7 +29,6 @@ def create_mock_trajectory(
     env_name: str,
     reward: float = 0.5,
 ) -> Any:
-    """Create a mock Trajectory for testing without real generation."""
     from synthstats.core.types import Message, Reward, Trajectory
 
     messages = [
@@ -63,7 +50,6 @@ def create_mock_trajectory(
 
 
 def run_mock_training(cfg: DictConfig) -> dict[str, float]:
-    """Run training with mock clients for testing."""
     from synthstats.integrations.tinker import (
         MockTinkerTrainingClient,
         TinkerConfig,
@@ -71,7 +57,7 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
         trajectories_to_tinker_batch,
     )
 
-    logger.info("Running MOCK training mode (no API key needed)")
+    logger.info("Mock mode (no API key needed)")
 
     tinker_cfg = TinkerConfig(
         model="mock-model",
@@ -81,9 +67,8 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
     )
     trainer = TinkerTrainer(config=tinker_cfg, logZ_init=cfg.trainer.logZ_init)
 
-    # inject mock training client
     trainer._training_client = MockTinkerTrainingClient()
-    trainer._service_client = "mock"  # prevent real client creation
+    trainer._service_client = "mock"
 
     num_episodes = cfg.trainer.num_episodes
     batch_size = cfg.trainer.batch_size
@@ -98,16 +83,12 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
     logger.info(f"Training on {env_name} for {num_episodes} episodes (batch_size={batch_size})")
 
     for ep in range(num_episodes):
-        # create mock trajectories (in real training, these come from TinkerPolicy)
         trajectories = [
             create_mock_trajectory(env_name, reward=0.1 + 0.5 * (ep / num_episodes))
             for _ in range(batch_size)
         ]
 
-        # convert to Tinker batch
         batch = trajectories_to_tinker_batch(trajectories, device="cpu")
-
-        # train step
         step_metrics = trainer.train_step(batch)
 
         metrics["loss"].append(step_metrics.get("subtb_loss", step_metrics.get("loss", 0.0)))
@@ -135,7 +116,6 @@ def run_mock_training(cfg: DictConfig) -> dict[str, float]:
 
 
 def run_real_training(cfg: DictConfig) -> dict[str, float]:
-    """Run training with real Tinker API."""
     from synthstats.integrations.tinker import (
         TinkerConfig,
         TinkerPolicy,
@@ -150,7 +130,7 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
             "Or run in mock mode: uv run python scripts/train_tinker.py +mock=true"
         )
 
-    logger.info("Running REAL training mode with Tinker API")
+    logger.info("Tinker API training")
 
     tinker_cfg = TinkerConfig(
         model=cfg.trainer.config.model,
@@ -208,31 +188,23 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
         "reward": [],
     }
 
-    logger.info(f"Starting training: {num_episodes} episodes, batch_size={batch_size}")
+    logger.info(f"Training: {num_episodes} episodes, batch_size={batch_size}")
 
     for ep in range(num_episodes):
-        # collect trajectories using TinkerPolicy
         trajectories = []
         for _ in range(batch_size):
-            # reset environment - returns chat_history (list of message dicts)
             chat_history, _ = env.init()
-
-            # generate action using policy
             action, logp, entropy = policy(chat_history)
-
-            # step environment (this appends assistant message to env.chat_history)
             action_str = policy._render_action(action)
             result = env.step(action_str)
 
-            # create trajectory (simplified - single turn)
             from synthstats.core.types import Message, Reward, Trajectory
 
-            # use env.chat_history which now includes the assistant response
             messages = [Message(role=m["role"], content=m["content"]) for m in env.chat_history]
 
             traj = Trajectory(
                 messages=messages,
-                token_ids=[[]],  # Tinker handles tokenization
+                token_ids=[[]],
                 token_logprobs=[[logp]],
                 loss_mask=[[True]],
                 reward=Reward(
@@ -243,11 +215,7 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
             )
             trajectories.append(traj)
 
-        # convert to Tinker batch (multi_turn for tool-use conversations)
-        # use CPU - Tinker API handles GPU remotely
         batch = trajectories_to_tinker_batch(trajectories, device="cpu", multi_turn=True)
-
-        # train step
         step_metrics = trainer.train_step(batch)
 
         loss = step_metrics.get("subtb_loss", step_metrics.get("loss", 0.0))
@@ -258,7 +226,6 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
         metrics["logZ"].append(logZ)
         metrics["reward"].append(mean_reward)
 
-        # log to wandb
         if cfg.wandb.enabled:
             wandb.log({
                 "step": ep,
@@ -267,7 +234,6 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
                 "mean_log_reward": mean_reward,
             })
 
-        # checkpoint
         if checkpoint_interval > 0 and (ep + 1) % checkpoint_interval == 0:
             ckpt_path = Path(cfg.output_dir) / f"checkpoint_ep{ep + 1}.pt"
             ckpt_path.parent.mkdir(parents=True, exist_ok=True)
@@ -297,15 +263,11 @@ def run_real_training(cfg: DictConfig) -> dict[str, float]:
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    """Main Tinker training entrypoint."""
-    # ensure cfg is mutable for merging
     OmegaConf.set_struct(cfg, False)
 
-    # override defaults for Tinker trainer if not already set
     trainer_target = cfg.get("trainer", {}).get("_target_", "")
     if "TinkerTrainer" not in trainer_target:
         logger.info("Using trainer=tinker config")
-        # load and merge tinker trainer config
         tinker_trainer = OmegaConf.load(
             Path(__file__).parent.parent / "configs/trainer/tinker.yaml"
         )
@@ -328,7 +290,6 @@ def main(cfg: DictConfig) -> None:
     if mock_mode:
         results = run_mock_training(cfg)
     else:
-        # check for API key
         api_key = cfg.trainer.config.api_key or os.environ.get("TINKER_API_KEY")
         if not api_key:
             logger.warning(

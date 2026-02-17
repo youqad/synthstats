@@ -46,24 +46,41 @@ cd synthstats
 # Install dependencies
 uv sync
 
+# Install dev tools (ruff, mypy, pytest-cov)
+uv sync --group dev
+
 # With ML + PyMC extras
 uv sync --extra ml --extra pymc
 ```
 
 ## Quick Start
 
-Train on Dugongs:
+Local training on Dugongs:
 
 ```bash
-uv run python scripts/train_skyrl.py env=dugongs model=qwen3_0.6b
+uv run synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b
 ```
 
-Override config via Hydra:
+Common overrides via Hydra:
 
 ```bash
-uv run python scripts/train_skyrl.py env=peregrines model=qwen3_4b \
-  +trainer.batch_size=8 +wandb.project=my_experiment
+uv run synthstats-train runner=local env=peregrines policy=hf_qwen3_4b \
+  runner.train.batch_size=8 logging=wandb
 ```
+
+SFT warm-start (pre-populate replay with demonstrations):
+
+```bash
+uv run synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b \
+  sft_warmstart.enabled=true \
+  sft_warmstart.data_path=/path/to/sft.jsonl \
+  sft_warmstart.compute_rewards=true
+```
+
+Notes:
+- `sft_warmstart.strip_thinking` defaults to `false` (preserves `<think>` as a latent variable for TB/SubTB).
+- `sft_warmstart.compute_rewards=true` can be slow (executes programs to score them).
+- Optional knobs: `sft_warmstart.max_examples`, `sft_warmstart.log_clamp=[-700,700]`, `sft_warmstart.show_progress=false`.
 
 Run tests:
 
@@ -71,16 +88,26 @@ Run tests:
 uv run pytest
 ```
 
+Developer checks:
+
+```bash
+uv run ruff check .
+uv run mypy src/synthstats
+uv run pytest --cov=src/synthstats
+```
+
 ## Project Structure
 
 ```
 src/synthstats/
+├── cli/            # Unified CLI entrypoints (synthstats-train)
 ├── core/           # Protocol definitions (Task, Policy, Executor, Judge)
-├── training/       # GFlowNet losses (SubTB, TB), trainers, replay buffers
+├── train/          # Runner → Learner → Objective training stack
 ├── tasks/          # Task plugins (Boxing, etc.)
 ├── judges/         # Reward components (ELPD-LOO, formatting)
 ├── policies/       # Policy implementations (HuggingFace, mock)
 ├── executors/      # Execution sandboxes (PyMC)
+├── envs/           # BoxingGym wrappers / text environments
 └── integrations/   # Tinker API adapter
 ```
 

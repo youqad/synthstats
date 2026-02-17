@@ -1,9 +1,9 @@
 # Tinker trainer - uses Tinker API for distributed training
 # Requires TINKER_API_KEY environment variable
-_target_: synthstats.integrations.tinker_adapter.TinkerTrainer
-_recursive_: false  # Don't pass extra keys to constructor
+_target_: synthstats.integrations.tinker.adapter.TinkerTrainer
+_recursive_: false
 config:
-  _target_: synthstats.integrations.tinker_adapter.TinkerConfig
+  _target_: synthstats.integrations.tinker.adapter.TinkerConfig
   model: Qwen/Qwen3-4B-Instruct-2507
   api_key: ${oc.env:TINKER_API_KEY,null}
   max_tokens: 256
@@ -11,7 +11,7 @@ config:
   lora_rank: 32
   learning_rate: 1e-5
 logZ_init: 0.0
-# Training loop parameters (not passed to TinkerTrainer constructor)
+# loop params (not passed to TinkerTrainer)
 num_episodes: 100
 batch_size: 4
-logZ_lr: 0.1
+logZ_lr: 0.01

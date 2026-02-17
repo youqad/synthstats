@@ -2,7 +2,7 @@ algorithm: tb
 learning_rate: 1e-5
 batch_size: 4
 num_episodes: 1000
-logZ_lr: 0.1
+logZ_lr: 0.01
 max_grad_norm: 1.0
 use_ref_policy: false
 ref_model_name: null

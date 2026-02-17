@@ -1,11 +1,10 @@
 # SubTB PyTorch Learner
 #
 # Updates policy + logZ parameters using PyTorch optimizers.
-# Handles gradient clipping and optional AMP.
 
 optim:
   policy_lr: 1e-5
-  logZ_lr: 1e-1
+  logZ_lr: 0.01
   weight_decay: 0.0
   max_grad_norm: 1.0
 

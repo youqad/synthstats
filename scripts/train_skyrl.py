@@ -24,12 +24,13 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from synthstats.core.constants import LOGZ_LR_DEFAULT
 from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
 from synthstats.envs.skyrl_text_env import SynthStatsTextEnv
 from synthstats.policies.hf_policy import HFPolicy, MockHFPolicy
-from synthstats.trainers.skyrl_subtb import SkyRLSubTBTrainer, SubTBConfig
-from synthstats.training.checkpointing import cleanup_old_checkpoints
-from synthstats.training.train_loop import TrainingConfig, TrainingLoop
+from synthstats.train.checkpointing.base import cleanup_old_checkpoints
+from synthstats.train.runners.skyrl_loop import TrainingConfig, TrainingLoop
+from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,13 +44,16 @@ def _sync_skyrl_registries() -> None:
     """
     try:
         import ray
+
         if not ray.is_initialized():
             return
         from skyrl_train.utils.ppo_utils import sync_registries
+
         sync_registries()
         logger.info("SkyRL registries synced with Ray workers")
     except ImportError:
         pass  # SkyRL or Ray not available
+
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -72,28 +76,15 @@ def save_checkpoint(
 ) -> Path:
     """Save training checkpoint.
 
-    For SkyRLSubTBTrainer with a TrainingLoop, uses the module's CheckpointState
-    format which includes RNG states and replay buffer for full reproducibility.
-    For TinkerTrainer, uses the trainer's own checkpoint method.
-
-    Args:
-        trainer: SkyRL trainer or TinkerTrainer with logZ parameter
-        policy: HFPolicy or TinkerPolicy with model state
-        step: Current training step
-        output_dir: Directory to save checkpoint
-        metrics: Optional metrics to include
-        loop: TrainingLoop instance for full state checkpointing
-
-    Returns:
-        Path to saved checkpoint
+    Uses TrainingLoop's CheckpointState when available, falls back to simple format.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = output_dir / f"checkpoint_{step:06d}.pt"
 
-    # TinkerTrainer has its own checkpoint method
     if hasattr(trainer, "save_checkpoint") and not hasattr(trainer, "logZ"):
         trainer.save_checkpoint(str(checkpoint_path))
+        # weights_only=False: legacy checkpoint with mixed types
         checkpoint = torch.load(checkpoint_path, weights_only=False)
         checkpoint["step"] = step
         checkpoint["metrics"] = metrics or {}
@@ -102,7 +93,7 @@ def save_checkpoint(
         torch.save(checkpoint, checkpoint_path)
         return checkpoint_path
 
-    # SkyRLSubTBTrainer: use loop's checkpoint if available (full state)
+    # prefer loop checkpoint (full state) when available
     if loop is not None:
         loop.step_count = step  # sync step count
         return loop.save_checkpoint(checkpoint_path)
@@ -134,26 +125,13 @@ def load_checkpoint(
     policy: Any,
     loop: TrainingLoop | None = None,
 ) -> int:
-    """Load training checkpoint.
-
-    Handles both old (simple) and new (CheckpointState) formats.
-
-    Args:
-        checkpoint_path: Path to checkpoint file
-        trainer: SkyRL trainer or TinkerTrainer to restore
-        policy: HFPolicy or TinkerPolicy to restore
-        loop: TrainingLoop instance for full state restoration
-
-    Returns:
-        Step number to resume from
-    """
+    """Load training checkpoint. Handles both old and new formats."""
     checkpoint_path = Path(checkpoint_path)
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     logger.info(f"Loading checkpoint from {checkpoint_path}")
 
-    # TinkerTrainer has its own load_checkpoint method
     if hasattr(trainer, "load_checkpoint") and not hasattr(trainer, "logZ"):
         checkpoint = trainer.load_checkpoint(str(checkpoint_path), strict=False)
         if (
@@ -166,17 +144,15 @@ def load_checkpoint(
         logger.info(f"Resumed TinkerTrainer from step {step}")
         return step
 
+    # weights_only=False: legacy checkpoint with mixed types
     checkpoint = torch.load(checkpoint_path, weights_only=False)
 
-    # detect format: new CheckpointState has step_count, old has step
     is_new_format = "step_count" in checkpoint
 
     if is_new_format and loop is not None:
-        # full restoration via TrainingLoop
         loop.load_checkpoint(checkpoint_path)
         return loop.step_count
 
-    # old format or no loop: manual restoration
     step_key = "step_count" if is_new_format else "step"
     step = checkpoint.get(step_key, 0)
 
@@ -195,13 +171,13 @@ def load_checkpoint(
 
     # restore RNG states for new format (critical for reproducibility)
     if is_new_format and "rng_states" in checkpoint:
-        from synthstats.training.checkpointing import set_rng_states
+        from synthstats.train.utils.seeding import set_rng_states
+
         set_rng_states(checkpoint["rng_states"])
         logger.info("Restored RNG states from checkpoint")
 
     logger.info(f"Resumed from step {step}, logZ={checkpoint['logZ']:.4f}")
     return step
-
 
 
 def resolve_device(device_str: str) -> str:
@@ -218,10 +194,12 @@ def create_policy(cfg: DictConfig, device: str) -> Any:
         logger.info("Using Hydra instantiation for policy")
         try:
             from hydra.utils import instantiate
+
             return instantiate(cfg.model)
         except Exception as e:
             logger.warning(f"Hydra instantiation failed: {e}, falling back to manual")
             from synthstats.integrations.tinker import TinkerConfig, TinkerPolicy
+
             model_cfg = cfg.model.get("config", {})
             tinker_config = TinkerConfig(
                 model=model_cfg.get("model", "Qwen/Qwen3-4B"),
@@ -246,7 +224,9 @@ def create_policy(cfg: DictConfig, device: str) -> Any:
     lora_cfg = cfg.model.get("lora", None)
     lora_config = OmegaConf.to_container(lora_cfg, resolve=True) if lora_cfg else None
 
-    logger.info(f"Loading HFPolicy: {model_name} (max_new_tokens={max_new_tokens}, dtype={dtype_str})")
+    logger.info(
+        f"Loading HFPolicy: {model_name} (max_new_tokens={max_new_tokens}, dtype={dtype_str})"
+    )
     if lora_config:
         logger.info(f"LoRA config: r={lora_config.get('r')}, alpha={lora_config.get('alpha')}")
     return HFPolicy(
@@ -289,12 +269,12 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
 
         # local optimizer for logZ updates
         trainer.optimizer = torch.optim.Adam(
-            [{"params": trainer.parameters(), "lr": cfg.trainer.get("logZ_lr", 1e-3)}]
+            [{"params": trainer.parameters(), "lr": cfg.trainer.get("logZ_lr", LOGZ_LR_DEFAULT)}]
         )
         return trainer
 
     # default: SkyRLSubTBTrainer
-    subtb_config = SubTBConfig(
+    subtb_config = SkyRLSubTBConfig(
         logZ_init=cfg.trainer.get("logZ_init", 0.0),
         beta=cfg.trainer.get("beta", 1.0),  # reward scaling: exp(beta * ELPD)
         use_ref_policy=cfg.trainer.get("use_ref_policy", False),
@@ -302,16 +282,14 @@ def create_trainer(cfg: DictConfig, device: str, policy: Any | None = None) -> A
         normalize_by_length=cfg.trainer.get("normalize_by_length", False),
         tb_max_residual=cfg.trainer.get("tb_max_residual", 100.0),
         max_grad_norm=cfg.trainer.get("max_grad_norm", None),  # gradient clipping
-        allow_mismatched_tokenizer=cfg.trainer.get(
-            "allow_mismatched_tokenizer", False
-        ),
+        allow_mismatched_tokenizer=cfg.trainer.get("allow_mismatched_tokenizer", False),
     )
     trainer = SkyRLSubTBTrainer(
         config=subtb_config,
         device=device,
     )
 
-    params = [{"params": [trainer.logZ], "lr": cfg.trainer.get("logZ_lr", 0.1)}]
+    params = [{"params": [trainer.logZ], "lr": cfg.trainer.get("logZ_lr", LOGZ_LR_DEFAULT)}]
 
     # only train policy params when explicitly requested (require_grad_logp=True)
     if (
@@ -349,9 +327,7 @@ def create_ref_policy(cfg: DictConfig, device: str) -> Any | None:
 
     ref_name = cfg.trainer.get("ref_model_name")
     if ref_name is None:
-        raise ValueError(
-            "use_ref_policy=True requires trainer.ref_model_name to be set"
-        )
+        raise ValueError("use_ref_policy=True requires trainer.ref_model_name to be set")
     if ref_name == "mock":
         logger.info("Using MockHFPolicy as reference policy")
         return MockHFPolicy(device=device)
@@ -368,7 +344,7 @@ def build_task(cfg: DictConfig) -> Any:
     task_cfg = cfg.task
 
     if task_cfg.name == "toy":
-        from synthstats.training.trainer import ToyTask
+        from synthstats.tasks.toy.task import ToyTask
 
         logger.info("Using ToyTask")
         return ToyTask()
@@ -496,11 +472,9 @@ def main(cfg: DictConfig) -> None:
     """Main training entrypoint."""
     global shutdown_requested
 
-    # register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
 
-    # sync SkyRL registries if Ray is running (for distributed training)
     _sync_skyrl_registries()
 
     logger.info("Starting SkyRL training")
@@ -517,14 +491,16 @@ def main(cfg: DictConfig) -> None:
     ref_policy = create_ref_policy(cfg, device)
     env = create_env(cfg)
 
-    # get checkpoint config
     checkpoint_cfg = cfg.get("checkpoint", {})
     output_dir = checkpoint_cfg.get("save_path") or cfg.get("output_dir", "checkpoints")
-    checkpoint_interval = cfg.get("checkpoint_interval") if cfg.get("checkpoint_interval") is not None else checkpoint_cfg.get("save_interval", 100)
+    checkpoint_interval = (
+        cfg.get("checkpoint_interval")
+        if cfg.get("checkpoint_interval") is not None
+        else checkpoint_cfg.get("save_interval", 100)
+    )
     keep_last_n = checkpoint_cfg.get("keep_last_n", 3)
     checkpointing_enabled = checkpoint_interval > 0 and output_dir is not None
 
-    # create training loop
     trainer_cfg = cfg.trainer
     if "_target_" in trainer_cfg:
         batch_size = trainer_cfg.get(
@@ -559,14 +535,13 @@ def main(cfg: DictConfig) -> None:
         log_callback=callback,
     )
 
-    # handle resume from checkpoint (after loop setup for full state restoration)
+    # after setup so full state can be restored
     start_step = 0
     resume_from = cfg.get("resume_from") or checkpoint_cfg.get("resume_from")
     if resume_from:
         start_step = load_checkpoint(resume_from, trainer, policy, loop=loop)
         logger.info(f"Resuming training from step {start_step}")
 
-    # run training with checkpointing
     num_steps = trainer_cfg.get("num_episodes", 100)
     remaining_steps = num_steps - start_step
     logger.info(f"Starting training for {remaining_steps} steps (total: {num_steps})")
@@ -581,7 +556,6 @@ def main(cfg: DictConfig) -> None:
     try:
         # run in chunks to allow checkpointing
         while current_step < num_steps and not shutdown_requested:
-            # calculate steps for this chunk
             steps_until_end = num_steps - current_step
             if checkpointing_enabled:
                 steps_until_checkpoint = checkpoint_interval - (current_step % checkpoint_interval)
@@ -589,13 +563,11 @@ def main(cfg: DictConfig) -> None:
             else:
                 chunk_steps = steps_until_end
 
-            # run chunk
             logger.info(f"Running chunk: steps {current_step} to {current_step + chunk_steps}")
             chunk_metrics = loop.run(steps=chunk_steps)
             all_metrics.extend(chunk_metrics)
             current_step += chunk_steps
 
-            # log progress
             if chunk_metrics:
                 latest = chunk_metrics[-1]
                 logger.info(
@@ -605,7 +577,6 @@ def main(cfg: DictConfig) -> None:
                     f"reward={latest.get('avg_reward', 0):.4f}"
                 )
 
-            # save checkpoint at intervals
             if checkpointing_enabled and (
                 current_step % checkpoint_interval == 0 or current_step >= num_steps
             ):
@@ -618,11 +589,9 @@ def main(cfg: DictConfig) -> None:
                     metrics={"last_loss": last_loss} if last_loss is not None else None,
                     loop=loop,
                 )
-                # clean up old checkpoints
                 if keep_last_n > 0:
                     cleanup_old_checkpoints(Path(output_dir), keep_last_n)
 
-            # check for shutdown request
             if shutdown_requested:
                 logger.info("Shutdown requested, saving final checkpoint...")
                 save_checkpoint(
@@ -651,9 +620,9 @@ def main(cfg: DictConfig) -> None:
             loop=loop,
         )
     finally:
-        # cleanup
         if callback:
             import wandb
+
             wandb.finish()
 
 

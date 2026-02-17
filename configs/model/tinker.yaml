@@ -1,9 +1,9 @@
 # Tinker API - distributed LLM training via Thinking Machines Lab
 # Requires TINKER_API_KEY environment variable
 # Get access: https://thinkingmachines.ai/tinker/
-_target_: synthstats.integrations.tinker_adapter.TinkerPolicy
+_target_: synthstats.integrations.tinker.adapter.TinkerPolicy
 config:
-  _target_: synthstats.integrations.tinker_adapter.TinkerConfig
+  _target_: synthstats.integrations.tinker.adapter.TinkerConfig
   model: Qwen/Qwen3-4B-Instruct-2507
   api_key: ${oc.env:TINKER_API_KEY,null}
   max_tokens: 256
