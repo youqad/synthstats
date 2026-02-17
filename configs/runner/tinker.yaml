@@ -1,7 +1,4 @@
-# Tinker API Training Runner
-#
-# Uses Tinker's API for model training.
-# Local env and collection, API-based policy and training.
+# Tinker API training runner.
 
 type: tinker
 

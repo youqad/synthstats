@@ -1,4 +1,4 @@
-# Qwen3-4B-Instruct-2507 - July 2025 update with major improvements
+# Qwen3-4B-Instruct-2507 - July 2025 release
 # 4B params, 262K context
 # AIME25: 19.1 → 47.4 (149% better), Arena-Hard v2: 9.5 → 43.4 (357% better)
 name: Qwen/Qwen3-4B-Instruct-2507

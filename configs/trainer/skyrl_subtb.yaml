@@ -1,12 +1,9 @@
 # SkyRL-native Sub-Trajectory Balance (SubTB) trainer config
 # Uses @register_policy_loss("modified_subtb") from gfn-lm-tuning
 #
-# SubTB differs from vanilla TB by:
-# 1. Computing flow matching loss over ALL sub-trajectory lengths
-# 2. Lambda-weighting longer sub-trajectories (lambda^(len-1))
-# 3. Using EOS logprobs for per-step termination flow
-#
-# This provides denser gradient signal and faster convergence than vanilla TB.
+# SubTB computes flow matching loss over sub-trajectories of all lengths,
+# lambda-weighted (lambda^(len-1)), with EOS logprobs for per-step
+# termination flow.
 
 # SkyRL algorithm config
 algorithm:

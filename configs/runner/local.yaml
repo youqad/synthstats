@@ -1,7 +1,4 @@
-# Local PyTorch Training Runner
-#
-# Pure PyTorch training on single node.
-# Uses LoopRunner for the training loop.
+# Local PyTorch training on single node.
 
 type: local
 

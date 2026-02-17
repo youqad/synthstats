@@ -1,6 +1,6 @@
 # Ministral-3-3B-Reasoning-2512 - Mistral's edge reasoning model
 # 3.4B LM + 0.4B vision, 256K context, multimodal
-# Strong reasoning: AIME25 0.721, GPQA Diamond 0.534
+# AIME25 0.721, GPQA Diamond 0.534
 name: mistralai/Ministral-3-3B-Reasoning-2512
 dtype: bfloat16
 device: ${device}

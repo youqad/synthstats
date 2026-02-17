@@ -1,6 +1,6 @@
 # Mock Policy
 #
-# Lightweight mock for testing without model loading.
+# Mock for testing without model loading.
 
 model_name: mock
 device: ${device}
