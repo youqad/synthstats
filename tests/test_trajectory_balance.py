@@ -6,7 +6,7 @@ Tests the SkyRL-integrated TB training components.
 import pytest
 import torch
 
-from synthstats.training.losses.trajectory_balance import (
+from synthstats.train.objectives.trajectory_balance import (
     SKYRL_REGISTERED,
     compute_tb_identity_advantage,
     compute_trajectory_balance_loss,
@@ -207,6 +207,24 @@ class TestTrajectoryBalanceLoss:
         expected_loss = 9.0
         assert torch.isclose(loss, torch.tensor(expected_loss), atol=0.1)
 
+    def test_all_masked_loss_is_differentiable(self):
+        """All-masked batches should return a zero loss that still supports backward()."""
+        log_probs = torch.randn(2, 4, requires_grad=True)
+        advantages = torch.zeros(2, 4)  # log_rewards (broadcast)
+        loss_mask = torch.zeros(2, 4)  # no valid tokens for any trajectory
+        config = {"logZ": 0.0, "tb_max_residual": 100.0}
+
+        loss, _ = compute_trajectory_balance_loss(
+            log_probs, log_probs.detach(), advantages, config, loss_mask
+        )
+
+        assert loss.shape == ()
+        assert loss.requires_grad, "Loss should stay connected to graph for backward()"
+
+        loss.backward()
+        assert log_probs.grad is not None
+        assert torch.allclose(log_probs.grad, torch.zeros_like(log_probs.grad))
+
     def test_config_types(self):
         """Should work with dict and DictConfig."""
         log_probs = torch.randn(2, 5)
@@ -279,7 +297,7 @@ class TestTBTrainerIntegration:
 
     def test_logZ_module(self):
         """LogZModule should be a learnable parameter."""
-        from synthstats.training.tb_trainer import LogZModule
+        from synthstats.train.runners.tb_trainer import LogZModule
 
         module = LogZModule(init_value=1.5)
 
@@ -288,13 +306,13 @@ class TestTBTrainerIntegration:
 
     def test_trainer_mixin_inject_logZ(self):
         """TBTrainerMixin should inject logZ into config."""
-        from synthstats.training.tb_trainer import TBTrainerMixin
+        from synthstats.train.runners.tb_trainer import TBTrainerMixin
 
         class DummyTrainer(TBTrainerMixin):
             pass
 
         trainer = DummyTrainer(logZ_init=2.5)
-        config = {"algorithm": {}}
+        config: dict[str, dict[str, float]] = {"algorithm": {}}
 
         trainer.inject_logZ_into_config(config)
 
@@ -305,7 +323,7 @@ class TestTBTrainerIntegration:
         """TBTrainerMixin should inject logZ tensor on compatible config objects."""
         from omegaconf import DictConfig
 
-        from synthstats.training.tb_trainer import TBTrainerMixin
+        from synthstats.train.runners.tb_trainer import TBTrainerMixin
 
         class DummyTrainer(TBTrainerMixin):
             pass
@@ -325,7 +343,7 @@ class TestTBTrainerIntegration:
 
     def test_trainer_mixin_step(self):
         """TBTrainerMixin should track step count."""
-        from synthstats.training.tb_trainer import TBTrainerMixin
+        from synthstats.train.runners.tb_trainer import TBTrainerMixin
 
         class DummyTrainer(TBTrainerMixin):
             pass
@@ -387,13 +405,7 @@ class TestEndToEndTBLoss:
         assert not torch.all(log_probs.grad == 0)
 
     def test_logZ_gradients_flow_via_tensor(self):
-        """Gradients should flow to logZ when passed as tensor via _logZ_tensor.
-
-        This test verifies the fix for the logZ gradient disconnect bug:
-        - When logZ is passed as a float, a new detached tensor is created
-        - When _logZ_tensor attribute is set, the tensor is used directly
-        - This preserves the computational graph so logZ can learn
-        """
+        """_logZ_tensor attribute preserves the computational graph for logZ gradients."""
         log_probs = torch.randn(2, 5, requires_grad=True)
         advantages = torch.randn(2, 5)
 
@@ -417,3 +429,77 @@ class TestEndToEndTBLoss:
         # logZ should have gradients if tensor was used
         assert logZ_param.grad is not None, "logZ gradient is None - tensor not used!"
         assert logZ_param.grad != 0.0, "logZ gradient is zero"
+
+
+class TestRewardTempValidation:
+    """Test reward_temp validation in TB/FlowRL loss functions."""
+
+    def test_compute_tb_loss_with_kl_rejects_zero_reward_temp(self):
+        from synthstats.train.objectives.trajectory_balance import compute_tb_loss_with_kl
+
+        log_probs = torch.randn(2, 5)
+        log_rewards = torch.randn(2)
+        response_mask = torch.ones(2, 5)
+        logZ = torch.tensor(0.0)
+
+        with pytest.raises(ValueError, match="reward_temp must be positive"):
+            compute_tb_loss_with_kl(log_probs, log_rewards, response_mask, logZ, reward_temp=0.0)
+
+    def test_compute_tb_loss_with_kl_rejects_negative_reward_temp(self):
+        from synthstats.train.objectives.trajectory_balance import compute_tb_loss_with_kl
+
+        log_probs = torch.randn(2, 5)
+        log_rewards = torch.randn(2)
+        response_mask = torch.ones(2, 5)
+        logZ = torch.tensor(0.0)
+
+        with pytest.raises(ValueError, match="reward_temp must be positive"):
+            compute_tb_loss_with_kl(log_probs, log_rewards, response_mask, logZ, reward_temp=-1.0)
+
+    def test_compute_flowrl_loss_rejects_zero_reward_temp(self):
+        from synthstats.train.objectives.trajectory_balance import compute_flowrl_loss
+
+        log_probs = torch.randn(2, 5)
+        log_rewards = torch.randn(2)
+        response_mask = torch.ones(2, 5)
+        logZ = torch.tensor(0.0)
+
+        with pytest.raises(ValueError, match="reward_temp must be positive"):
+            compute_flowrl_loss(log_probs, log_rewards, response_mask, logZ, reward_temp=0.0)
+
+    def test_compute_flowrl_loss_rejects_negative_reward_temp(self):
+        from synthstats.train.objectives.trajectory_balance import compute_flowrl_loss
+
+        log_probs = torch.randn(2, 5)
+        log_rewards = torch.randn(2)
+        response_mask = torch.ones(2, 5)
+        logZ = torch.tensor(0.0)
+
+        with pytest.raises(ValueError, match="reward_temp must be positive"):
+            compute_flowrl_loss(log_probs, log_rewards, response_mask, logZ, reward_temp=-1.0)
+
+    def test_compute_tb_loss_with_kl_accepts_positive_reward_temp(self):
+        from synthstats.train.objectives.trajectory_balance import compute_tb_loss_with_kl
+
+        log_probs = torch.randn(2, 5)
+        log_rewards = torch.randn(2)
+        response_mask = torch.ones(2, 5)
+        logZ = torch.tensor(0.0)
+
+        loss, metrics = compute_tb_loss_with_kl(
+            log_probs, log_rewards, response_mask, logZ, reward_temp=1.0
+        )
+        assert not torch.isnan(loss)
+
+    def test_compute_flowrl_loss_accepts_positive_reward_temp(self):
+        from synthstats.train.objectives.trajectory_balance import compute_flowrl_loss
+
+        log_probs = torch.randn(2, 5)
+        log_rewards = torch.randn(2)
+        response_mask = torch.ones(2, 5)
+        logZ = torch.tensor(0.0)
+
+        loss, metrics = compute_flowrl_loss(
+            log_probs, log_rewards, response_mask, logZ, reward_temp=15.0
+        )
+        assert not torch.isnan(loss)

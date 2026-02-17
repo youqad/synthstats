@@ -20,7 +20,7 @@ class TestReplayBufferBasics:
     """Basic add/len/sample operations."""
 
     def test_buffer_add_and_len(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         assert len(buffer) == 0
@@ -32,7 +32,7 @@ class TestReplayBufferBasics:
         assert len(buffer) == 2
 
     def test_buffer_sample_returns_trajectories(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         traj = make_trajectory()
@@ -45,7 +45,7 @@ class TestReplayBufferBasics:
         assert batch[0].reward.total == traj.reward.total
 
     def test_buffer_capacity_eviction(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=3)
 
@@ -63,7 +63,7 @@ class TestReplayBufferBasics:
         assert all_rewards == {2.0, 3.0, 4.0}
 
     def test_buffer_sample_with_replacement(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         buffer.add(make_trajectory())
@@ -78,7 +78,7 @@ class TestReplayBufferEdgeCases:
     """Edge cases and error handling."""
 
     def test_empty_buffer_sample_raises(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
 
@@ -86,7 +86,7 @@ class TestReplayBufferEdgeCases:
             buffer.sample(batch_size=1)
 
     def test_zero_batch_size(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         buffer.add(make_trajectory())
@@ -95,7 +95,7 @@ class TestReplayBufferEdgeCases:
         assert batch == []
 
     def test_capacity_one(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=1)
         buffer.add(make_trajectory(reward_total=1.0))
@@ -110,7 +110,7 @@ class TestPrioritizedBuffer:
     """Prioritized sampling weighted by reward."""
 
     def test_prioritized_buffer_weights_by_reward(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=100, prioritized=True)
 
@@ -134,7 +134,7 @@ class TestPrioritizedBuffer:
 
     def test_prioritized_with_zero_rewards(self):
         """Zero rewards should still be sampleable."""
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10, prioritized=True)
         buffer.add(make_trajectory(reward_total=0.0))
@@ -145,7 +145,7 @@ class TestPrioritizedBuffer:
 
     def test_prioritized_with_negative_rewards(self):
         """Negative rewards should be handled (shifted to positive)."""
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10, prioritized=True)
         buffer.add(make_trajectory(reward_total=-1.0))
@@ -157,7 +157,7 @@ class TestPrioritizedBuffer:
 
     def test_prioritized_alpha_parameter(self):
         """Alpha controls prioritization strength."""
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         # alpha=0 should be uniform
         buffer_uniform = ReplayBuffer(capacity=100, prioritized=True, alpha=0.0)
@@ -188,7 +188,7 @@ class TestReplayBufferIteration:
 
     def test_buffer_stores_full_trajectory(self):
         """Ensure all trajectory fields are preserved."""
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         original = Trajectory(
@@ -220,7 +220,7 @@ class TestReplayBufferStateDictCheckpointing:
     """Test state_dict/load_state_dict for checkpointing."""
 
     def test_state_dict_returns_serializable_dict(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10, prioritized=True, alpha=0.5)
         buffer.add(make_trajectory(reward_total=0.5))
@@ -234,7 +234,7 @@ class TestReplayBufferStateDictCheckpointing:
         assert len(state["trajectories"]) == 2
 
     def test_load_state_dict_restores_buffer(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10, prioritized=True, alpha=0.5)
         buffer.add(make_trajectory(reward_total=0.5))
@@ -250,7 +250,7 @@ class TestReplayBufferStateDictCheckpointing:
         assert new_buffer._alpha == 0.5
 
     def test_state_dict_roundtrip_preserves_trajectories(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         original = Trajectory(
@@ -280,7 +280,7 @@ class TestReplayBufferStateDictCheckpointing:
         assert restored.eos_logprobs == original.eos_logprobs
 
     def test_empty_buffer_state_dict(self):
-        from synthstats.training.buffers import ReplayBuffer
+        from synthstats.train.loop.replay import ReplayBuffer
 
         buffer = ReplayBuffer(capacity=10)
         state = buffer.state_dict()

@@ -1,8 +1,4 @@
-"""PyTorch-based SubTB learner.
-
-Owns optimizer and handles gradient updates for policy + logZ parameters.
-Wraps SubTBObjective and implements the Learner protocol.
-"""
+"""PyTorch-based SubTB learner. Owns optimizer, wraps SubTBObjective."""
 
 from __future__ import annotations
 
@@ -12,40 +8,22 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from synthstats.core.constants import LOGZ_LR_DEFAULT
 from synthstats.train.objectives.subtb import SubTBConfig, SubTBObjective
 
 
 @dataclass
 class SubTBTorchConfig:
-    """Configuration for SubTBTorchLearner."""
-
-    # optimizer
     policy_lr: float = 1e-5
-    logZ_lr: float = 1e-1
+    logZ_lr: float = LOGZ_LR_DEFAULT
     weight_decay: float = 0.0
     max_grad_norm: float | None = 1.0
 
-    # precision
     amp_enabled: bool = False
 
 
 class SubTBTorchLearner:
-    """PyTorch-based SubTB learner.
-
-    Owns the optimizer and handles gradient updates. Wraps SubTBObjective
-    for loss computation.
-
-    Args:
-        objective: SubTBObjective for loss computation
-        policy: Policy module with trainable parameters (optional)
-        config: SubTBTorchConfig with optimizer settings
-        device: Device for training
-
-    Example:
-        >>> objective = SubTBObjective(SubTBConfig())
-        >>> learner = SubTBTorchLearner(objective, policy, config)
-        >>> metrics = learner.update(batch)
-    """
+    """Owns optimizer and handles gradient updates via SubTBObjective."""
 
     def __init__(
         self,
@@ -59,26 +37,20 @@ class SubTBTorchLearner:
         self.config = config or SubTBTorchConfig()
         self._device = torch.device(device)
 
-        # build optimizer
         self.optimizer = self._build_optimizer()
-
-        # AMP scaler
         self._scaler = torch.amp.GradScaler("cuda") if self.config.amp_enabled else None
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
-        """Build optimizer with separate parameter groups."""
         param_groups = []
 
-        # logZ parameters (from objective)
         param_groups.append(
             {
                 "params": [self.objective.logZ],
                 "lr": self.config.logZ_lr,
-                "weight_decay": 0.0,  # no weight decay on logZ
+                "weight_decay": 0.0,
             }
         )
 
-        # policy parameters (if trainable)
         if self.policy is not None:
             policy_params = [p for p in self.policy.parameters() if p.requires_grad]
             if policy_params:
@@ -93,14 +65,6 @@ class SubTBTorchLearner:
         return torch.optim.AdamW(param_groups)
 
     def update(self, batch: dict[str, Any]) -> dict[str, float]:
-        """Update parameters from batch.
-
-        Args:
-            batch: Dict with keys log_probs, log_reward, mask, entropy, etc.
-
-        Returns:
-            Dict with metrics (loss, tb_loss, entropy, logZ)
-        """
         self.optimizer.zero_grad(set_to_none=True)
 
         if self.config.amp_enabled and self._scaler is not None:
@@ -122,7 +86,6 @@ class SubTBTorchLearner:
         return metrics
 
     def _clip_gradients(self) -> None:
-        """Clip gradients to max_grad_norm."""
         params = []
         for group in self.optimizer.param_groups:
             for p in group["params"]:
@@ -133,11 +96,9 @@ class SubTBTorchLearner:
 
     @property
     def logZ(self) -> float:
-        """Current logZ value."""
         return self.objective.logZ.item()
 
     def state_dict(self) -> dict[str, Any]:
-        """Serialize learner state for checkpointing."""
         state = {
             "objective": self.objective.state_dict(),
             "optimizer": self.optimizer.state_dict(),
@@ -147,7 +108,6 @@ class SubTBTorchLearner:
         return state
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore learner state from checkpoint."""
         self.objective.load_state_dict(state["objective"])
         self.optimizer.load_state_dict(state["optimizer"])
         if self._scaler is not None and "scaler" in state:
@@ -160,17 +120,6 @@ def create_subtb_learner(
     objective_config: SubTBConfig | None = None,
     learner_config: SubTBTorchConfig | None = None,
 ) -> SubTBTorchLearner:
-    """Factory function to create SubTBTorchLearner with objective.
-
-    Args:
-        policy: Optional policy module with trainable parameters
-        device: Device for training
-        objective_config: Config for SubTBObjective
-        learner_config: Config for SubTBTorchLearner
-
-    Returns:
-        Configured SubTBTorchLearner
-    """
     objective = SubTBObjective(
         config=objective_config or SubTBConfig(),
         device=device,

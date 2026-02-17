@@ -9,14 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class StdoutLogger:
-    """Console logging implementation.
-
-    Logs metrics to stdout with configurable formatting.
-
-    Args:
-        log_interval: Only log every N steps (1 = every step)
-        metrics_format: Dict mapping metric names to format strings
-    """
+    """Console logging with configurable formatting."""
 
     def __init__(
         self,
@@ -33,7 +26,6 @@ class StdoutLogger:
         }
 
     def log(self, step: int, metrics: dict[str, Any]) -> None:
-        """Log metrics to stdout."""
         if self.log_interval > 1 and step % self.log_interval != 0:
             return
 
@@ -46,5 +38,4 @@ class StdoutLogger:
         logger.info(" | ".join(parts))
 
     def close(self) -> None:
-        """No-op for stdout."""
         pass

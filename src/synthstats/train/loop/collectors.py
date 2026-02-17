@@ -1,7 +1,4 @@
-"""Trajectory collectors for training.
-
-Collectors generate trajectories by running episodes with a policy.
-"""
+"""Trajectory collectors for training."""
 
 from __future__ import annotations
 
@@ -15,22 +12,21 @@ import torch
 
 from synthstats.core.types import Action, FinalAnswer, Program, ToolCall
 
-# type aliases
-PolicyFnLegacy = Callable[[str], tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor]]
-PolicyFnWithTemp = Callable[
-    [str, float], tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor]
-]
+PolicyOut3 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor]
+PolicyOut4 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor]
+PolicyFnLegacy = Callable[[str], PolicyOut3 | PolicyOut4]
+PolicyFnWithTemp = Callable[[str, float], PolicyOut3 | PolicyOut4]
 PolicyFn = PolicyFnLegacy | PolicyFnWithTemp
-ScoreFnLegacy = Callable[[str, dict[str, Any]], tuple[float | torch.Tensor, float | torch.Tensor]]
-ScoreFnWithTemp = Callable[
-    [str, dict[str, Any], float], tuple[float | torch.Tensor, float | torch.Tensor]
-]
+ScoreOut2 = tuple[float | torch.Tensor, float | torch.Tensor]
+ScoreOut3 = tuple[float | torch.Tensor, float | torch.Tensor, float | torch.Tensor]
+ScoreFnLegacy = Callable[[str, dict[str, Any]], ScoreOut2 | ScoreOut3]
+ScoreFnWithTemp = Callable[[str, dict[str, Any], float], ScoreOut2 | ScoreOut3]
 ScoreFn = ScoreFnLegacy | ScoreFnWithTemp
 
 
 @dataclass
 class CollectedTrajectory:
-    """A collected trajectory with policy data."""
+    """Trajectory with log_probs, entropy, and optional ref/EOS data."""
 
     observations: list[str]
     actions: list[dict[str, Any]]
@@ -62,13 +58,7 @@ class CollectedTrajectory:
 
 
 class TrajectoryCollector:
-    """Collector that generates trajectories from env + policy.
-
-    Args:
-        env: Environment with init() and step() methods
-        policy_fn: Policy callable
-        score_fn: Optional scoring function for ref-policy correction
-    """
+    """Runs episodes and collects trajectories with policy logprobs."""
 
     def __init__(
         self,
@@ -86,7 +76,6 @@ class TrajectoryCollector:
             self.score_fn = score_fn
             self._score_fn_is_default = False
 
-        # detect signatures
         try:
             sig = inspect.signature(policy_fn)
             self._policy_accepts_temp = len(sig.parameters) >= 2
@@ -107,20 +96,9 @@ class TrajectoryCollector:
         episodes: int = 1,
         *,
         temperature: float = 1.0,
-        seed: int | None = None,
         compute_ref_log_probs: bool = False,
     ) -> list[CollectedTrajectory]:
-        """Collect trajectories by running episodes.
-
-        Args:
-            episodes: Number of episodes
-            temperature: Sampling temperature
-            seed: Optional seed
-            compute_ref_log_probs: Compute reference policy log-probs
-
-        Returns:
-            List of CollectedTrajectory
-        """
+        """Run `episodes` episodes, optionally scoring against a ref policy."""
         trajectories: list[CollectedTrajectory] = []
 
         if compute_ref_log_probs:
@@ -144,23 +122,13 @@ class TrajectoryCollector:
             obs = self._extract_observation(chat_history)
 
             while not done:
-                if self._policy_accepts_temp:
-                    action, logp, ent = cast(PolicyFnWithTemp, self.policy_fn)(obs, temperature)
-                else:
-                    action, logp, ent = cast(PolicyFnLegacy, self.policy_fn)(obs)
-
-                eos_logp = getattr(self.policy_fn, "_last_eos_logprob_final", None)
+                action, logp, ent, eos_logp = self._sample_action(obs, temperature)
                 if eos_logp is not None:
                     eos_logps.append(self._to_tensor(eos_logp))
 
                 if compute_ref_log_probs:
                     with torch.no_grad():
-                        if self._score_accepts_temp:
-                            ref_logp, _ = cast(ScoreFnWithTemp, self.score_fn)(
-                                obs, action, temperature
-                            )
-                        else:
-                            ref_logp, _ = cast(ScoreFnLegacy, self.score_fn)(obs, action)
+                        ref_logp, _, _ = self._score_action(obs, action, temperature)
                     ref_logps.append(self._to_tensor(ref_logp).detach())
 
                 action_text = self._render_action(action)
@@ -182,8 +150,17 @@ class TrajectoryCollector:
                         obs = self._extract_observation(result["observations"])
 
             eos_logprobs_t: torch.Tensor | None = None
-            if eos_logps and len(eos_logps) == len(logps):
-                eos_logprobs_t = torch.stack(eos_logps)
+            if eos_logps:
+                if len(eos_logps) == len(logps):
+                    eos_logprobs_t = torch.stack(eos_logps)
+                else:
+                    import warnings
+
+                    warnings.warn(
+                        f"partial EOS logprobs ({len(eos_logps)}/{len(logps)}), discarding",
+                        UserWarning,
+                        stacklevel=2,
+                    )
 
             trajectories.append(
                 CollectedTrajectory(
@@ -205,10 +182,10 @@ class TrajectoryCollector:
         entry: Any,
         temperature: float = 1.0,
     ) -> CollectedTrajectory | None:
-        """Replay a buffer entry with current policy scoring.
+        """Re-score a replay buffer entry with the current policy.
 
-        Used by GFNReplayBuffer for on-sample re-scoring.
-        Also captures EOS logprobs to match fresh trajectories from collect().
+        GFNReplayBuffer stores action sequences without tensors; this
+        re-computes log_probs so training always uses on-policy gradients.
         """
         if self.score_fn is None:
             raise ValueError("replay_entry requires score_fn")
@@ -225,27 +202,17 @@ class TrajectoryCollector:
         entropies: list[torch.Tensor] = []
         eos_logps: list[torch.Tensor] = []
 
-        # resolve EOS source once: for bound methods (policy.score_action),
-        # the attribute lives on the instance, not the method wrapper.
-        # NOTE: _last_eos_logprob_final is a side-channel — not thread-safe.
-        # Safe for single-threaded LocalRunner; would need explicit return
-        # from score_action if parallelized.
-        eos_source = getattr(self.score_fn, "__self__", self.score_fn)
-
         for obs, action in zip(observations, entry.actions, strict=True):
-            if self._score_accepts_temp:
-                logp, ent = cast(ScoreFnWithTemp, self.score_fn)(obs, action, temperature)
-            else:
-                logp, ent = cast(ScoreFnLegacy, self.score_fn)(obs, action)
+            logp, ent, eos_logp = self._score_action(obs, action, temperature)
             log_probs.append(self._to_tensor(logp))
             entropies.append(self._to_tensor(ent))
 
-            eos_logp = getattr(eos_source, "_last_eos_logprob_final", None)
             if eos_logp is not None:
                 eos_logps.append(self._to_tensor(eos_logp))
 
-        # clamp to prevent overflow (log_reward can reach ±700)
-        reward = math.exp(min(entry.log_reward, 700.0))
+        # clamp both ends to prevent overflow/underflow
+        clamped = max(min(entry.log_reward, 700.0), -700.0)
+        reward = math.exp(clamped)
 
         # only include eos_logprobs if we got one for every action
         eos_logprobs_t: torch.Tensor | None = None
@@ -270,7 +237,7 @@ class TrajectoryCollector:
         return json.dumps(messages)
 
     def _render_action(self, action: dict[str, Any] | Action | str) -> str:
-        """Render action to text."""
+        """Render action to the text format the env expects."""
         if isinstance(action, str):
             return action
         if isinstance(action, Action):
@@ -282,25 +249,20 @@ class TrajectoryCollector:
         return str(action)
 
     def _render_with_codec(self, action: Action) -> str:
-        """Render using env's codec."""
         codec = getattr(self.env, "codec", None)
         if codec is None:
             return str(action)
         if hasattr(codec, "render"):
             return codec.render(action)
-        if hasattr(codec, "format"):
-            return codec.format(action)
         return str(action)
 
     @staticmethod
     def _dict_to_action(action: dict[str, Any]) -> Action | None:
-        """Convert dict to Action."""
         if "query" in action and len(action) <= 2 and "name" not in action:
             return ToolCall(name="query", input={"query": str(action["query"])}, raw="")
         if "tool" in action or "name" in action:
             name = action.get("tool") or action.get("name")
             raw_input = action.get("input", action.get("args", {}))
-            input_payload: dict[str, Any]
             if isinstance(raw_input, dict):
                 input_payload = raw_input
             elif isinstance(raw_input, str):
@@ -334,9 +296,95 @@ class TrajectoryCollector:
 
     @staticmethod
     def _to_tensor(val: float | torch.Tensor) -> torch.Tensor:
-        """Convert to scalar tensor."""
         if isinstance(val, torch.Tensor):
             if val.dim() != 0:
                 val = val.reshape(())
             return val
         return torch.tensor(float(val), dtype=torch.float32)
+
+    def _sample_action(
+        self,
+        obs: str,
+        temperature: float,
+    ) -> tuple[
+        dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None
+    ]:
+        sample_with_eos = getattr(self.policy_fn, "sample_with_eos", None)
+        if callable(sample_with_eos):
+            try:
+                out = sample_with_eos(obs, temperature)
+            except TypeError:
+                out = sample_with_eos(obs)
+            return self._unpack_policy_output(out)
+
+        if self._policy_accepts_temp:
+            out = cast(PolicyFnWithTemp, self.policy_fn)(obs, temperature)
+        else:
+            out = cast(PolicyFnLegacy, self.policy_fn)(obs)
+        return self._unpack_policy_output(out)
+
+    def _score_action(
+        self,
+        obs: str,
+        action: dict[str, Any],
+        temperature: float,
+    ) -> tuple[float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None]:
+        if self.score_fn is None:
+            raise ValueError("_score_action requires score_fn")
+
+        score_with_eos = getattr(self.score_fn, "score_action_with_eos", None)
+        if callable(score_with_eos):
+            try:
+                out = score_with_eos(obs, action, temperature)
+            except TypeError:
+                out = score_with_eos(obs, action)
+            return self._unpack_score_output(out)
+
+        score_owner = getattr(self.score_fn, "__self__", None)
+        owner_score_with_eos = getattr(score_owner, "score_action_with_eos", None)
+        if callable(owner_score_with_eos):
+            try:
+                out = owner_score_with_eos(obs, action, temperature)
+            except TypeError:
+                out = owner_score_with_eos(obs, action)
+            return self._unpack_score_output(out)
+
+        if self._score_accepts_temp:
+            out = cast(ScoreFnWithTemp, self.score_fn)(obs, action, temperature)
+        else:
+            out = cast(ScoreFnLegacy, self.score_fn)(obs, action)
+        return self._unpack_score_output(out)
+
+    @staticmethod
+    def _unpack_policy_output(
+        out: Any,
+    ) -> tuple[
+        dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None
+    ]:
+        if not isinstance(out, tuple):
+            raise ValueError("policy_fn must return tuple(action, logp, entropy[, eos_logprob])")
+        if len(out) == 3:
+            action, logp, ent = out
+            return cast(dict[str, Any], action), logp, ent, None
+        if len(out) == 4:
+            action, logp, ent, eos_logp = out
+            return cast(dict[str, Any], action), logp, ent, eos_logp
+        raise ValueError(
+            f"policy_fn returned unsupported tuple length {len(out)}; expected 3 or 4 elements"
+        )
+
+    @staticmethod
+    def _unpack_score_output(
+        out: Any,
+    ) -> tuple[float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None]:
+        if not isinstance(out, tuple):
+            raise ValueError("score_fn must return tuple(logp, entropy[, eos_logprob])")
+        if len(out) == 2:
+            logp, ent = out
+            return logp, ent, None
+        if len(out) == 3:
+            logp, ent, eos_logp = out
+            return logp, ent, eos_logp
+        raise ValueError(
+            f"score_fn returned unsupported tuple length {len(out)}; expected 2 or 3 elements"
+        )

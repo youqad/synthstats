@@ -9,15 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class WandbLogger:
-    """Weights & Biases logging implementation.
-
-    Args:
-        project: W&B project name
-        entity: W&B entity (username or team)
-        name: Run name (auto-generated if None)
-        tags: Run tags
-        config: Config dict to log
-    """
 
     def __init__(
         self,
@@ -35,7 +26,6 @@ class WandbLogger:
         self._run = None
 
     def _ensure_init(self) -> None:
-        """Lazy initialize W&B."""
         if self._run is not None:
             return
 
@@ -57,7 +47,6 @@ class WandbLogger:
             logger.warning(f"Failed to initialize W&B: {e}")
 
     def log(self, step: int, metrics: dict[str, Any]) -> None:
-        """Log metrics to W&B."""
         self._ensure_init()
         if self._run is None:
             return
@@ -70,7 +59,6 @@ class WandbLogger:
             logger.warning(f"W&B log failed: {e}")
 
     def close(self) -> None:
-        """Finish W&B run."""
         if self._run is not None:
             try:
                 import wandb

@@ -1,9 +1,4 @@
-"""Replay buffers for off-policy training.
-
-Two implementations:
-- ReplayBuffer: Simple trajectory storage
-- GFNReplayBuffer: On-sample re-scoring (eliminates off-policy bias)
-"""
+"""Replay buffers for off-policy GFlowNet training."""
 
 from __future__ import annotations
 
@@ -14,6 +9,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from synthstats.train.loop.batching import extract_reward
+
 if TYPE_CHECKING:
     pass
 
@@ -22,18 +19,15 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class ReplayCollector(Protocol):
-    """Protocol for collectors that support replay."""
-
-    def replay_entry(self, entry: BufferEntry, temperature: float = 1.0) -> Any | None:
-        """Replay a buffer entry and return fresh trajectory."""
-        ...
+    def replay_entry(self, entry: BufferEntry, temperature: float = 1.0) -> Any | None: ...
 
 
 @dataclass
 class BufferEntry:
-    """Minimal replay entry for GFNReplayBuffer.
+    """Stores action sequence only (no tensors); re-scored on sample.
 
-    Stores action sequence only (no tensors). Re-scored on sample.
+    log_reward is from collection time and won't be re-scaled under reward
+    temperature annealing. Keep replay fraction modest (<=25%) if annealing.
     """
 
     actions: list[dict[str, Any]]
@@ -44,7 +38,6 @@ class BufferEntry:
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict."""
         return {
             "actions": self.actions,
             "log_reward": self.log_reward,
@@ -56,28 +49,19 @@ class BufferEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BufferEntry:
-        """Deserialize from dict."""
         return cls(
             actions=data["actions"],
             log_reward=data["log_reward"],
             observations=data["observations"],
             policy_version=data.get("policy_version", 0),
             temperature=data.get("temperature", 1.0),
-            timestamp=data.get("timestamp", 0.0),  # backward compat for old checkpoints
+            timestamp=data.get("timestamp", 0.0),
         )
 
 
 class GFNReplayBuffer:
-    """GFlowNet replay buffer with on-sample re-scoring.
-
-    Stores action sequences only. When sampled, entries are replayed
-    and re-scored with the current policy.
-
-    Args:
-        capacity: Maximum entries (FIFO eviction)
-        prioritized: Sample proportional to exp(log_reward)
-        alpha: Prioritization exponent
-        max_retry_factor: Max entries to try when sampling fails
+    """Replay buffer that re-scores entries with the current policy on sample,
+    eliminating off-policy bias. See BufferEntry for reward annealing caveat.
     """
 
     def __init__(
@@ -95,11 +79,52 @@ class GFNReplayBuffer:
         self._policy_version = 0
 
     def add(self, entry: BufferEntry) -> None:
-        """Add entry to buffer."""
         self._buffer.append(entry)
 
+    def pre_populate(
+        self,
+        entries: list[BufferEntry],
+        *,
+        dedupe: bool = True,
+        source_label: str = "sft",
+    ) -> int:
+        """Seed buffer with entries (e.g., SFT data). Returns count added."""
+        added = 0
+        skipped_dupe = 0
+
+        seen_signatures: set[str] = set()
+        if dedupe:
+            for existing in self._buffer:
+                sig = self._action_signature(existing)
+                seen_signatures.add(sig)
+
+        for entry in entries:
+            if dedupe:
+                sig = self._action_signature(entry)
+                if sig in seen_signatures:
+                    skipped_dupe += 1
+                    continue
+                seen_signatures.add(sig)
+
+            self._buffer.append(entry)
+            added += 1
+
+        if skipped_dupe > 0:
+            logger.info(
+                f"Pre-populated {added} {source_label} entries, skipped {skipped_dupe} duplicates"
+            )
+        else:
+            logger.info(f"Pre-populated {added} {source_label} entries")
+
+        return added
+
+    @staticmethod
+    def _action_signature(entry: BufferEntry) -> str:
+        import json
+
+        return json.dumps(entry.actions, sort_keys=True)
+
     def add_from_trajectory(self, traj: Any, log_reward: float) -> None:
-        """Convert trajectory to BufferEntry and add."""
         temperature = getattr(traj, "temperature", 1.0)
         entry = BufferEntry(
             actions=list(traj.actions),
@@ -116,28 +141,17 @@ class GFNReplayBuffer:
         collector: ReplayCollector,
         temperature: float = 1.0,
     ) -> list[Any]:
-        """Sample and re-score with current policy.
-
-        Args:
-            batch_size: Number of trajectories
-            collector: Collector with replay_entry method
-            temperature: Sampling temperature
-
-        Returns:
-            List of trajectories with fresh log_probs
-        """
+        """Sample entries and re-score with current policy via the collector."""
         if batch_size == 0:
             return []
         if len(self._buffer) == 0:
             raise ValueError("Cannot sample from empty buffer")
 
-        # select entries one-at-a-time until we have enough or hit max attempts
         results: list[Any] = []
         max_attempts = int(batch_size * self._max_retry_factor)
         attempts = 0
 
         while len(results) < batch_size and attempts < max_attempts:
-            # select single entry
             entry = self._select_entries(1)[0]
             result = collector.replay_entry(entry, temperature=temperature)
             if result is not None:
@@ -150,12 +164,7 @@ class GFNReplayBuffer:
         return results
 
     def _select_entries(self, n: int) -> list[BufferEntry]:
-        """Select n entries (with replacement).
-
-        For GFlowNets, we want P(τ) ∝ R^α = exp(α * log R).
-        We use max-subtraction for numerical stability:
-          weight_i = exp(α * (log R_i - max_log_R)) + eps
-        """
+        """Select n entries with replacement, optionally prioritized by exp(alpha * log_reward)."""
         import math
 
         if not self._prioritized or self._alpha == 0:
@@ -169,11 +178,9 @@ class GFNReplayBuffer:
         return random.choices(entries, weights=weights, k=n)
 
     def increment_policy_version(self) -> None:
-        """Increment policy version after update."""
         self._policy_version += 1
 
     def get_staleness_stats(self) -> dict[str, float]:
-        """Get staleness statistics."""
         if len(self._buffer) == 0:
             return {"mean_staleness": 0.0, "max_staleness": 0}
         staleness = [self._policy_version - e.policy_version for e in self._buffer]
@@ -189,7 +196,6 @@ class GFNReplayBuffer:
         return iter(self._buffer)
 
     def state_dict(self) -> dict[str, Any]:
-        """Serialize buffer state."""
         return {
             "entries": [e.to_dict() for e in self._buffer],
             "policy_version": self._policy_version,
@@ -200,7 +206,6 @@ class GFNReplayBuffer:
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore buffer state."""
         self._policy_version = state["policy_version"]
         self._capacity = state["capacity"]
         self._prioritized = state["prioritized"]
@@ -212,13 +217,7 @@ class GFNReplayBuffer:
 
 
 class ReplayBuffer:
-    """Simple FIFO replay buffer for trajectories.
-
-    Args:
-        capacity: Maximum trajectories
-        prioritized: Sample proportional to reward
-        alpha: Prioritization exponent
-    """
+    """FIFO replay buffer with optional reward-proportional sampling."""
 
     def __init__(
         self,
@@ -232,11 +231,9 @@ class ReplayBuffer:
         self._buffer: deque[Any] = deque(maxlen=capacity)
 
     def add(self, trajectory: Any) -> None:
-        """Add trajectory to buffer."""
         self._buffer.append(trajectory)
 
     def sample(self, batch_size: int) -> list[Any]:
-        """Sample trajectories."""
         if batch_size == 0:
             return []
         if len(self._buffer) == 0:
@@ -247,24 +244,13 @@ class ReplayBuffer:
         return random.choices(list(self._buffer), k=batch_size)
 
     def _prioritized_sample(self, batch_size: int) -> list[Any]:
-        """Sample proportional to reward."""
         trajectories = list(self._buffer)
-        rewards = [self._get_reward(t) for t in trajectories]
+        rewards = [extract_reward(t) for t in trajectories]
         min_reward = min(rewards)
         shifted = [r - min_reward for r in rewards]
         eps = 1e-6
         weights = [(r + eps) ** self._alpha for r in shifted]
         return random.choices(trajectories, weights=weights, k=batch_size)
-
-    @staticmethod
-    def _get_reward(trajectory: Any) -> float:
-        """Extract reward from trajectory."""
-        reward = getattr(trajectory, "reward", 0.0)
-        if isinstance(reward, (float, int)):
-            return float(reward)
-        if hasattr(reward, "total"):
-            return float(reward.total)
-        return 0.0
 
     def __len__(self) -> int:
         return len(self._buffer)
@@ -273,13 +259,12 @@ class ReplayBuffer:
         return iter(self._buffer)
 
     def state_dict(self) -> dict[str, Any]:
-        """Serialize buffer state."""
         entries = []
         for t in self._buffer:
             if hasattr(t, "to_dict"):
                 entries.append(t.to_dict())
             else:
-                entries.append({"reward": self._get_reward(t)})
+                entries.append({"reward": extract_reward(t)})
         return {
             "trajectories": entries,
             "capacity": self._capacity,
@@ -288,7 +273,6 @@ class ReplayBuffer:
         }
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore buffer state."""
         from synthstats.core.types import Trajectory
 
         self._capacity = state["capacity"]

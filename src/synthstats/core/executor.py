@@ -1,8 +1,6 @@
-"""Executor Protocol - defines the interface for safe tool runtimes.
+"""Executor protocol."""
 
-Executors run tool calls in sandboxed environments with safety checks.
-Examples: Python sandbox, PyMC sandbox, Bash/Docker for SWE.
-"""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -44,3 +42,34 @@ class Executor(Protocol):
             ToolResult with output, success flag, and optional error.
         """
         ...
+
+
+def execute_tool_call(
+    action: ToolCall,
+    executors: dict[str, Executor],
+    *,
+    timeout_s: float,
+    unknown_prefix: str = "Error: ",
+    unknown_available_label: str = "Available tools",
+) -> ToolResult:
+    """Shared tool execution helper with consistent error handling."""
+    executor = executors.get(action.name)
+    if executor is None:
+        available = list(executors.keys())
+        return ToolResult(
+            output=(
+                f"{unknown_prefix}Unknown tool '{action.name}'. "
+                f"{unknown_available_label}: {available}"
+            ),
+            success=False,
+            error=f"Unknown tool: {action.name}",
+        )
+
+    try:
+        return executor.execute(action, timeout_s=timeout_s)
+    except Exception as e:
+        return ToolResult(
+            output=f"Error executing {action.name}: {e}",
+            success=False,
+            error=str(e),
+        )

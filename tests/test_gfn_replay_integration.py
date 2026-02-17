@@ -23,6 +23,18 @@ class MockScoreFn:
         ent = torch.tensor(0.5)
         return logp, ent
 
+    def score_action_with_eos(
+        self,
+        obs: str,
+        action: dict,
+        temperature: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self._last_eos_logprob_final = self._eos_logprob
+        logp = torch.tensor(-0.1)
+        ent = torch.tensor(0.5)
+        eos = torch.tensor(self._eos_logprob)
+        return logp, ent, eos
+
 
 class MockEnv:
     """Minimal env for testing collectors."""
@@ -58,11 +70,34 @@ class MockPolicyFn:
         ent = torch.tensor(0.6)
         return action, logp, ent
 
+    def sample_with_eos(
+        self,
+        obs: str,
+        temperature: float = 1.0,
+    ) -> tuple[dict[str, str], torch.Tensor, torch.Tensor, torch.Tensor]:
+        action = {"type": "query", "payload": "test"}
+        logp = torch.tensor(-0.2)
+        ent = torch.tensor(0.6)
+        eos = torch.tensor(self._last_eos_logprob_final)
+        return action, logp, ent, eos
+
     def score_action(self, obs: str, action: dict, temperature: float = 1.0):
         self._last_eos_logprob_final = -0.5
         logp = torch.tensor(-0.2)
         ent = torch.tensor(0.6)
         return logp, ent
+
+    def score_action_with_eos(
+        self,
+        obs: str,
+        action: dict,
+        temperature: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self._last_eos_logprob_final = -0.5
+        logp = torch.tensor(-0.2)
+        ent = torch.tensor(0.6)
+        eos = torch.tensor(self._last_eos_logprob_final)
+        return logp, ent, eos
 
 
 class TestEOSLogprobsInReplay:

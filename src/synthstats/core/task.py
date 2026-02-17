@@ -1,8 +1,6 @@
-"""Task Protocol - defines the interface for domain plugins.
+"""Task protocol."""
 
-A Task represents a specific problem domain (BoxingGym, SynthStats, ARC, SWE).
-It manages episode state and provides observations to the policy.
-"""
+from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 

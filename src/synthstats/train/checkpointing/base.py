@@ -7,9 +7,39 @@ CheckpointManagers handle saving and loading training state:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+
+def extract_logZ(learner: Any) -> float:
+    logZ = learner.logZ if hasattr(learner, "logZ") else 0.0
+    if hasattr(logZ, "item"):
+        logZ = logZ.item()
+    return float(logZ)
+
+
+def find_latest_checkpoint(
+    save_dir: Path,
+    pattern: str = "checkpoint_*.pt",
+) -> Path | None:
+    save_dir = Path(save_dir)
+    if not save_dir.exists():
+        return None
+    checkpoints = sorted(
+        save_dir.glob(pattern),
+        key=lambda p: p.stat().st_mtime,
+    )
+    return checkpoints[-1] if checkpoints else None
+
+
+def should_save(step: int, every_steps: int) -> bool:
+    if every_steps <= 0:
+        return False
+    return step % every_steps == 0
 
 
 @dataclass
@@ -29,7 +59,6 @@ class CheckpointState:
     metrics_history: list[dict[str, float]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
         return {
             "step_count": self.step_count,
             "logZ": self.logZ,
@@ -43,7 +72,6 @@ class CheckpointState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CheckpointState:
-        """Create CheckpointState from dictionary."""
         return cls(
             step_count=data["step_count"],
             logZ=data["logZ"],
@@ -123,3 +151,69 @@ class CheckpointManager(Protocol):
             Path to latest checkpoint, or None if none exist.
         """
         ...
+
+
+def save_checkpoint(path: Path, state: CheckpointState) -> None:
+    """Save checkpoint to disk, creating parent directories if needed."""
+    import torch
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_dict = state.to_dict()
+    torch.save(checkpoint_dict, path)
+
+    logger.info(f"Saved checkpoint to {path} (step {state.step_count})")
+
+
+def load_checkpoint(path: Path) -> CheckpointState:
+    """Load checkpoint from disk.
+
+    Raises:
+        FileNotFoundError: If checkpoint file doesn't exist.
+    """
+    import torch
+
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {path}")
+
+    # weights_only=False: CheckpointState includes numpy/Python RNG states
+    checkpoint_dict = torch.load(path, weights_only=False)
+    state = CheckpointState.from_dict(checkpoint_dict)
+
+    logger.info(f"Loaded checkpoint from {path} (step {state.step_count})")
+
+    return state
+
+
+def cleanup_old_checkpoints(
+    checkpoint_dir: Path,
+    keep_last_n: int,
+    pattern: str = "checkpoint_*.pt",
+) -> list[Path]:
+    """Remove old checkpoints, keeping only the most recent *keep_last_n*."""
+    checkpoint_dir = Path(checkpoint_dir)
+    if not checkpoint_dir.exists():
+        return []
+
+    checkpoints = sorted(checkpoint_dir.glob(pattern), key=lambda p: p.stat().st_mtime)
+
+    if keep_last_n <= 0 or len(checkpoints) <= keep_last_n:
+        return []
+
+    to_remove = checkpoints[:-keep_last_n]
+    removed = []
+
+    for ckpt in to_remove:
+        try:
+            ckpt.unlink()
+            removed.append(ckpt)
+            logger.debug(f"Removed old checkpoint: {ckpt}")
+        except OSError as e:
+            logger.warning(f"Failed to remove checkpoint {ckpt}: {e}")
+
+    if removed:
+        logger.info(f"Cleaned up {len(removed)} old checkpoints")
+
+    return removed

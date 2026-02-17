@@ -11,6 +11,7 @@ from typing import Any
 
 from omegaconf import DictConfig
 
+from synthstats.envs.builders import build_env
 from synthstats.train.checkpointing.minimal import MinimalCheckpoint
 from synthstats.train.learners.subtb_tinker import SubTBTinkerConfig, SubTBTinkerLearner
 from synthstats.train.logging.stdout import StdoutLogger
@@ -51,7 +52,7 @@ class TinkerRunner:
             device = resolve_device(self.cfg.get("device", "auto"))
 
             # build components
-            env = self._build_env()
+            env = build_env(self.cfg)
             policy = self._build_policy()
             learner = self._build_learner(device)
             collector = TrajectoryCollector(env=env, policy_fn=policy)
@@ -94,12 +95,6 @@ class TinkerRunner:
         except Exception as e:
             logger.exception("Tinker training failed")
             return RunResult(error=str(e))
-
-    def _build_env(self) -> Any:
-        """Build environment."""
-        from synthstats.envs.builders import build_env
-
-        return build_env(self.cfg)
 
     def _build_policy(self) -> Any:
         """Build Tinker policy."""

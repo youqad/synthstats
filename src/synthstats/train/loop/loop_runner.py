@@ -1,16 +1,17 @@
-"""Generic training loop: collect → learn → log → checkpoint.
-
-LoopRunner is the core training loop used by LocalRunner and TinkerRunner.
-It orchestrates trajectory collection, batch building, learning, logging,
-and checkpointing.
-"""
+"""Generic training loop: collect, learn, log, checkpoint."""
 
 from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from synthstats.core.constants import REWARD_FLOOR_DEFAULT
+from synthstats.train.learners.base import Learner
+from synthstats.train.loop.batching import extract_reward
+from synthstats.train.loop.metrics import summarize_eval_metrics
 
 if TYPE_CHECKING:
     from synthstats.train.checkpointing.base import CheckpointManager
@@ -28,23 +29,7 @@ class Collector(Protocol):
         episodes: int,
         temperature: float,
         compute_ref_log_probs: bool = False,
-    ) -> list[Any]:
-        """Collect trajectories."""
-        ...
-
-
-@runtime_checkable
-class Learner(Protocol):
-    """Protocol for learners."""
-
-    def update(self, batch: dict[str, Any]) -> dict[str, float]:
-        """Update from batch, return metrics."""
-        ...
-
-    @property
-    def logZ(self) -> float:
-        """Current logZ value."""
-        ...
+    ) -> list[Any]: ...
 
 
 @dataclass
@@ -68,27 +53,15 @@ class LoopConfig:
     use_gfn_replay: bool = True
 
     # misc
-    reward_floor: float = 1e-4
+    reward_floor: float = REWARD_FLOOR_DEFAULT
     log_interval: int = 10
     device: str = "cpu"
 
 
 class LoopRunner:
-    """Generic training loop: collect → learn → log → checkpoint.
+    """Generic training loop: collect, learn, log, checkpoint.
 
-    Orchestrates the training process without knowing about specific
-    backends (PyTorch vs Tinker vs Ray).
-
-    Args:
-        collector: Trajectory collector
-        learner: Parameter updater
-        logger_sink: Metric logger
-        checkpoint_manager: Checkpoint handler
-        config: Loop configuration
-
-    Example:
-        >>> loop = LoopRunner(collector, learner, logger, checkpoint_mgr, config)
-        >>> loop.run(steps=100)
+    Backend-agnostic; works with PyTorch, Tinker, or Ray.
     """
 
     def __init__(
@@ -108,7 +81,8 @@ class LoopRunner:
         self.batch_builder = batch_builder
 
         self.step_count = 0
-        self._all_metrics: list[dict[str, float]] = []
+        self._all_metrics: deque[dict[str, float]] = deque(maxlen=10_000)
+        self._last_eos_downgraded = False
 
         # replay buffers (lazy init)
         self._replay_buffer: Any | None = None
@@ -118,7 +92,7 @@ class LoopRunner:
             self._init_replay_buffer()
 
     def _init_replay_buffer(self) -> None:
-        """Initialize appropriate replay buffer."""
+        """Pick GFN or simple replay buffer based on config."""
         if self.config.use_gfn_replay:
             from synthstats.train.loop.replay import GFNReplayBuffer
 
@@ -136,18 +110,12 @@ class LoopRunner:
                 alpha=self.config.replay_alpha,
             )
 
-    def train_step(self) -> dict[str, float]:
-        """Run a single training step.
+    @property
+    def gfn_replay_buffer(self) -> Any:
+        """GFN replay buffer, or None if not configured."""
+        return self._gfn_replay_buffer
 
-        1. Collect trajectories (fresh + replay if enabled)
-        2. Build batch
-        3. Update parameters
-        4. Log metrics
-
-        Returns:
-            Metrics dict
-        """
-        # determine fresh vs replay split
+    def _replay_availability(self) -> tuple[bool, bool]:
         has_gfn_buffer = (
             self._gfn_replay_buffer is not None
             and len(self._gfn_replay_buffer) >= self.config.batch_size
@@ -155,97 +123,152 @@ class LoopRunner:
         has_simple_buffer = (
             self._replay_buffer is not None and len(self._replay_buffer) >= self.config.batch_size
         )
+        return has_gfn_buffer, has_simple_buffer
 
+    def _compute_batch_split(
+        self,
+        has_gfn_buffer: bool,
+        has_simple_buffer: bool,
+    ) -> tuple[int, int]:
         if has_gfn_buffer or has_simple_buffer:
             num_replay = int(self.config.batch_size * self.config.replay_ratio)
             num_fresh = self.config.batch_size - num_replay
         else:
             num_fresh = self.config.batch_size
             num_replay = 0
+        return num_fresh, num_replay
 
-        # collect fresh trajectories
-        fresh_trajectories = self.collector.collect(
+    def _collect_fresh_trajectories(self, num_fresh: int) -> list[Any]:
+        return self.collector.collect(
             episodes=num_fresh,
             temperature=self.config.temperature,
         )
 
-        # add to buffer
+    def _add_fresh_to_replay(self, fresh_trajectories: list[Any]) -> None:
         if self._gfn_replay_buffer is not None:
             for traj in fresh_trajectories:
-                reward = getattr(traj, "reward", 0.0)
-                if hasattr(reward, "total"):
-                    reward = reward.total
-                log_reward = math.log(max(float(reward), self.config.reward_floor))
+                log_reward = math.log(max(extract_reward(traj), self.config.reward_floor))
                 self._gfn_replay_buffer.add_from_trajectory(traj, log_reward=log_reward)
-        elif self._replay_buffer is not None:
+            return
+
+        if self._replay_buffer is not None:
             for traj in fresh_trajectories:
                 if hasattr(traj, "detach"):
                     self._replay_buffer.add(traj.detach())
                 else:
                     self._replay_buffer.add(traj)
 
-        # sample from replay
-        replay_trajectories = []
-        if num_replay > 0:
-            if has_gfn_buffer:
-                assert self._gfn_replay_buffer is not None
-                replay_trajectories = self._gfn_replay_buffer.sample(
-                    batch_size=num_replay,
-                    collector=self.collector,
-                    temperature=self.config.temperature,
-                )
-            elif has_simple_buffer:
-                assert self._replay_buffer is not None
-                replay_trajectories = self._replay_buffer.sample(num_replay)
+    def _sample_replay_trajectories(
+        self,
+        *,
+        num_replay: int,
+        has_gfn_buffer: bool,
+        has_simple_buffer: bool,
+    ) -> list[Any]:
+        if num_replay <= 0:
+            return []
 
+        if has_gfn_buffer:
+            assert self._gfn_replay_buffer is not None
+            return self._gfn_replay_buffer.sample(
+                batch_size=num_replay,
+                collector=self.collector,
+                temperature=self.config.temperature,
+            )
+
+        if has_simple_buffer:
+            assert self._replay_buffer is not None
+            return self._replay_buffer.sample(num_replay)
+
+        return []
+
+    def _combine_trajectories(
+        self,
+        fresh_trajectories: list[Any],
+        replay_trajectories: list[Any],
+    ) -> list[Any]:
         trajectories = fresh_trajectories + replay_trajectories
+        self._last_eos_downgraded = False
 
-        # build batch
+        # guard: strip EOS when mixing fresh (has EOS) + replay (no EOS)
+        if replay_trajectories and fresh_trajectories:
+            has_eos = [t.eos_logprobs is not None for t in trajectories]
+            if any(has_eos) and not all(has_eos):
+                logger.warning(
+                    "stripping eos_logprobs: replay lacks EOS, falling back to vanilla TB"
+                )
+                self._last_eos_downgraded = True
+                return [replace(t, eos_logprobs=None) for t in trajectories]
+
+        return trajectories
+
+    def _build_batch(self, trajectories: list[Any]) -> Any:
         if self.batch_builder is not None:
-            batch = self.batch_builder(
-                trajectories,
-                reward_floor=self.config.reward_floor,
-                device=self.config.device,
-            )
-        else:
-            # default: use build_subtb_batch
-            from synthstats.train.loop.batching import build_subtb_batch
-
-            batch = build_subtb_batch(
+            return self.batch_builder(
                 trajectories,
                 reward_floor=self.config.reward_floor,
                 device=self.config.device,
             )
 
-        # update parameters
-        metrics = self.learner.update(batch)
+        # default: use build_subtb_batch
+        from synthstats.train.loop.batching import build_subtb_batch
 
-        # add trajectory metrics
-        def _get_reward(r: Any) -> float:
-            if hasattr(r, "total"):
-                return float(r.total)
-            return float(r)
+        return build_subtb_batch(
+            trajectories,
+            reward_floor=self.config.reward_floor,
+            device=self.config.device,
+        )
 
-        avg_reward = sum(_get_reward(t.reward) for t in trajectories) / len(trajectories)
+    def _update_buffer_metrics(self, metrics: dict[str, float]) -> None:
+        if self._gfn_replay_buffer is None:
+            return
+
+        self._gfn_replay_buffer.increment_policy_version()
+        staleness = self._gfn_replay_buffer.get_staleness_stats()
+        metrics["buffer_mean_staleness"] = staleness["mean_staleness"]
+        metrics["buffer_max_staleness"] = staleness["max_staleness"]
+        metrics["buffer_size"] = len(self._gfn_replay_buffer)
+
+    def _finalize_step_metrics(
+        self,
+        metrics: dict[str, float],
+        trajectories: list[Any],
+        *,
+        num_replay: int,
+    ) -> dict[str, float]:
+        avg_reward = sum(extract_reward(t) for t in trajectories) / len(trajectories)
         metrics["avg_reward"] = avg_reward
         metrics["num_episodes"] = len(trajectories)
         metrics["replay_ratio"] = num_replay / len(trajectories) if trajectories else 0.0
+        metrics["eos_downgraded"] = 1.0 if self._last_eos_downgraded else 0.0
+        self._update_buffer_metrics(metrics)
+        return metrics
 
-        # buffer stats
-        if self._gfn_replay_buffer is not None:
-            self._gfn_replay_buffer.increment_policy_version()
-            staleness = self._gfn_replay_buffer.get_staleness_stats()
-            metrics["buffer_mean_staleness"] = staleness["mean_staleness"]
-            metrics["buffer_max_staleness"] = staleness["max_staleness"]
-            metrics["buffer_size"] = len(self._gfn_replay_buffer)
-
+    def _record_step(self, metrics: dict[str, float]) -> None:
         self.step_count += 1
         self._all_metrics.append(metrics)
 
-        # log
         if self.logger_sink is not None and self.step_count % self.config.log_interval == 0:
             self.logger_sink.log(self.step_count, metrics)
 
+    def train_step(self) -> dict[str, float]:
+        """Collect, build batch, learn, log. Returns metrics dict."""
+        has_gfn_buffer, has_simple_buffer = self._replay_availability()
+        num_fresh, num_replay = self._compute_batch_split(has_gfn_buffer, has_simple_buffer)
+
+        fresh_trajectories = self._collect_fresh_trajectories(num_fresh)
+        self._add_fresh_to_replay(fresh_trajectories)
+
+        replay_trajectories = self._sample_replay_trajectories(
+            num_replay=num_replay,
+            has_gfn_buffer=has_gfn_buffer,
+            has_simple_buffer=has_simple_buffer,
+        )
+        trajectories = self._combine_trajectories(fresh_trajectories, replay_trajectories)
+        batch = self._build_batch(trajectories)
+        metrics = self.learner.update(batch)
+        metrics = self._finalize_step_metrics(metrics, trajectories, num_replay=num_replay)
+        self._record_step(metrics)
         return metrics
 
     def run(self, steps: int | None = None) -> list[dict[str, float]]:
@@ -282,31 +305,22 @@ class LoopRunner:
         Returns:
             Evaluation metrics
         """
+        import torch
+
         n = episodes or self.config.eval_episodes
         temp = max(self.config.temperature, 1e-3)  # avoid zero
 
-        trajectories = self.collector.collect(episodes=n, temperature=temp)
+        with torch.no_grad():
+            trajectories = self.collector.collect(episodes=n, temperature=temp)
 
-        def _get_reward(t: Any) -> float:
-            r = getattr(t, "reward", 0.0)
-            return float(r.total) if hasattr(r, "total") else float(r)
-
-        rewards = [_get_reward(t) for t in trajectories]
-        avg = sum(rewards) / len(rewards)
-        mx = max(rewards)
-        mn = min(rewards)
-        success = sum(1 for r in rewards if r > 0) / len(rewards)
-
-        return {
-            "eval_avg_reward": avg,
-            "eval_max_reward": mx,
-            "eval_min_reward": mn,
-            "eval_success_rate": success,
-            "eval_episodes": n,
-            "logZ": self.learner.logZ,
-        }
+        rewards = [extract_reward(t) for t in trajectories]
+        return summarize_eval_metrics(
+            rewards,
+            episodes=n,
+            logZ=self.learner.logZ,
+        )
 
     @property
     def metrics_history(self) -> list[dict[str, float]]:
         """All metrics collected during training."""
-        return self._all_metrics
+        return list(self._all_metrics)

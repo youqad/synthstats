@@ -1,4 +1,4 @@
-"""Tests for TB (Trajectory Balance) loss - WRITTEN FIRST per TDD."""
+"""Tests for TB (Trajectory Balance) loss."""
 
 import torch
 import torch.nn as nn
@@ -8,7 +8,7 @@ class TestSubTBLossShape:
     """Verify output shapes and basic behavior."""
 
     def test_subtb_loss_returns_scalar(self):
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3, -0.2], [-0.4, -0.6, -0.1]])  # [2, 3]
         loss_mask = torch.ones(2, 3, dtype=torch.bool)
@@ -21,7 +21,7 @@ class TestSubTBLossShape:
         assert loss.dtype == torch.float32 or loss.dtype == torch.float64
 
     def test_subtb_loss_batch_size_one(self):
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3]])  # [1, 2]
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -38,7 +38,7 @@ class TestSubTBLossMasking:
     """Verify masking correctly excludes tokens."""
 
     def test_mask_excludes_tokens(self):
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         # set up so masked tokens have very different values
         log_probs = torch.tensor([[-1.0, -1000.0, -1.0]])  # [1, 3]
@@ -55,7 +55,7 @@ class TestSubTBLossMasking:
 
     def test_fully_masked_sequence(self):
         """All tokens masked out should give loss based on logZ - log_R only."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -2.0, -3.0]])  # [1, 3]
         mask_none = torch.zeros(1, 3, dtype=torch.bool)  # all masked
@@ -70,7 +70,7 @@ class TestSubTBLossMasking:
 
     def test_partial_mask(self):
         """Verify partial masking sums only unmasked tokens."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -2.0, -3.0]])  # [1, 3]
         mask = torch.tensor([[True, False, True]])  # sum = -1 + -3 = -4
@@ -88,7 +88,7 @@ class TestSubTBLossGradient:
     """Verify gradients flow correctly."""
 
     def test_gradient_flows_to_logZ(self):
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -102,7 +102,7 @@ class TestSubTBLossGradient:
         assert not torch.isnan(logZ.grad)
 
     def test_gradient_nonzero_when_unbalanced(self):
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -116,7 +116,7 @@ class TestSubTBLossGradient:
 
     def test_loss_is_differentiable(self):
         """Ensure entire computation graph is differentiable."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5, -0.3]], requires_grad=True)
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -134,7 +134,7 @@ class TestSubTBLossBalance:
 
     def test_zero_loss_when_balanced(self):
         """When logZ + log_pi = log_R, loss should be 0."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         # set up balanced: logZ=1, sum(log_probs)=-2, log_reward=-1
         # 1 + (-2) = -1 = log_reward, so (1 + (-2) - (-1))^2 = 0
@@ -149,7 +149,7 @@ class TestSubTBLossBalance:
 
     def test_nonzero_loss_when_unbalanced(self):
         """When logZ + log_pi != log_R, loss should be positive."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0]])  # sum = -2
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -168,7 +168,7 @@ class TestSubTBLossRefPolicy:
 
     def test_ref_policy_correction_zero_loss(self):
         """With ref_log_probs, balanced trajectories should yield near-zero loss."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0]])  # sum = -2
         ref_log_probs = torch.tensor([[-0.5, -0.5]])  # sum = -1
@@ -192,7 +192,7 @@ class TestSubTBLossLengthNormalization:
 
     def test_length_normalization_balances_lengths(self):
         """Different lengths should normalize to comparable sums."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0, 0.0, 0.0], [-1.0, -1.0, -1.0, -1.0]])
         loss_mask = torch.tensor([[True, True, False, False], [True, True, True, True]])
@@ -215,7 +215,7 @@ class TestSubTBLossBatching:
 
     def test_batch_averaging(self):
         """Mean over batch dimension."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         # batch 1: logZ + sum(lp) - log_R = 0 + (-2) - 0 = -2, squared = 4
         # batch 2: logZ + sum(lp) - log_R = 0 + (-4) - 0 = -4, squared = 16
@@ -236,7 +236,7 @@ class TestSubTBLossEdgeCases:
 
     def test_empty_sequence_length(self):
         """Handle sequences with zero length (all masked)."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.zeros(2, 0)  # [2, 0]
         loss_mask = torch.zeros(2, 0, dtype=torch.bool)
@@ -251,7 +251,7 @@ class TestSubTBLossEdgeCases:
 
     def test_single_token(self):
         """Single token per sequence."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-0.5]])  # [1, 1]
         loss_mask = torch.ones(1, 1, dtype=torch.bool)
@@ -266,7 +266,7 @@ class TestSubTBLossEdgeCases:
 
     def test_negative_log_rewards(self):
         """Negative log rewards (R < 1) should work."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -281,7 +281,7 @@ class TestSubTBLossEdgeCases:
 
     def test_large_logZ(self):
         """Large logZ values should not cause numerical issues."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -294,8 +294,8 @@ class TestSubTBLossEdgeCases:
         assert not torch.isinf(loss)
 
     def test_inf_log_rewards_handled(self):
-        """Infinite log_rewards (from zero reward) should be handled gracefully."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        """Infinite log_rewards (from zero reward) produce finite loss."""
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -308,8 +308,8 @@ class TestSubTBLossEdgeCases:
         assert not torch.isinf(loss)
 
     def test_nan_log_rewards_handled(self):
-        """NaN log_rewards should be handled gracefully."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        """NaN log_rewards produce finite loss."""
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-1.0, -1.0]])
         loss_mask = torch.ones(1, 2, dtype=torch.bool)
@@ -323,7 +323,7 @@ class TestSubTBLossEdgeCases:
 
     def test_residual_clamping(self):
         """Very large residuals should be clamped for numerical stability."""
-        from synthstats.training.losses.tb_loss import subtb_loss
+        from synthstats.train.objectives.losses import subtb_loss
 
         log_probs = torch.tensor([[-500.0, -500.0]])  # very negative
         loss_mask = torch.ones(1, 2, dtype=torch.bool)

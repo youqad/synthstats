@@ -1,8 +1,4 @@
-"""Minimal checkpointing for backends that own their state.
-
-Used with SkyRL/Ray or Tinker where the backend manages most state.
-Only saves step count and minimal metadata.
-"""
+"""Minimal checkpointing for backends that own their state (SkyRL/Ray, Tinker)."""
 
 from __future__ import annotations
 
@@ -12,22 +8,18 @@ from typing import Any
 
 import torch
 
-from synthstats.train.checkpointing.base import CheckpointState
+from synthstats.train.checkpointing.base import (
+    CheckpointState,
+    extract_logZ,
+    find_latest_checkpoint,
+    should_save,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class MinimalCheckpoint:
-    """Minimal checkpoint manager.
-
-    For backends that own their state (SkyRL/Ray, Tinker).
-    Only saves step count and minimal metadata.
-
-    Args:
-        save_dir: Directory for checkpoints
-        every_steps: Save interval (0 = never)
-        resume_from: Path to resume from (optional)
-    """
+    """Saves step count and logZ only; backend manages the rest."""
 
     def __init__(
         self,
@@ -47,10 +39,7 @@ class MinimalCheckpoint:
         replay_buffer: Any | None = None,
         metrics_history: list[dict[str, float]] | None = None,
     ) -> Path | None:
-        """Save if interval met (usually disabled for minimal)."""
-        if self.every_steps <= 0:
-            return None
-        if step % self.every_steps != 0:
+        if not should_save(step, self.every_steps):
             return None
         return self.save(step, learner, policy, replay_buffer, metrics_history)
 
@@ -62,13 +51,10 @@ class MinimalCheckpoint:
         replay_buffer: Any | None = None,
         metrics_history: list[dict[str, float]] | None = None,
     ) -> Path:
-        """Save minimal checkpoint."""
         self.save_dir.mkdir(parents=True, exist_ok=True)
         path = self.save_dir / f"checkpoint_{step:06d}.pt"
 
-        logZ = learner.logZ if hasattr(learner, "logZ") else 0.0
-        if hasattr(logZ, "item"):
-            logZ = logZ.item()
+        logZ = extract_logZ(learner)
 
         state = {
             "step_count": step,
@@ -81,12 +67,11 @@ class MinimalCheckpoint:
         return path
 
     def load(self, path: str | Path) -> CheckpointState:
-        """Load checkpoint."""
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {path}")
 
-        data = torch.load(path, weights_only=False)
+        data = torch.load(path, weights_only=True)
 
         return CheckpointState(
             step_count=data.get("step_count", 0),
@@ -100,12 +85,4 @@ class MinimalCheckpoint:
         )
 
     def find_latest(self) -> Path | None:
-        """Find most recent checkpoint."""
-        if not self.save_dir.exists():
-            return None
-
-        checkpoints = sorted(
-            self.save_dir.glob("checkpoint_*.pt"),
-            key=lambda p: p.stat().st_mtime,
-        )
-        return checkpoints[-1] if checkpoints else None
+        return find_latest_checkpoint(self.save_dir)

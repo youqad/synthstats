@@ -20,15 +20,17 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from synthstats.core.constants import SUBTB_LAMBDA_DEFAULT, TB_MAX_RESIDUAL_DEFAULT
+from synthstats.train.objectives.losses import compute_modified_subtb_core, subtb_loss
+
 
 @dataclass
 class SubTBConfig:
     """Configuration for SubTB objective."""
 
-    beta: float = 1.0
     loss_type: str = "tb"  # "tb" or "modified_subtb"
-    subtb_lambda: float = 0.9
-    tb_max_residual: float = 100.0
+    subtb_lambda: float = SUBTB_LAMBDA_DEFAULT
+    tb_max_residual: float = TB_MAX_RESIDUAL_DEFAULT
     logZ_init: float = 0.0
 
     # reference policy (KL regularization)
@@ -90,7 +92,6 @@ class SubTBObjective(nn.Module):
                 - entropy: mean entropy
                 - logZ: current logZ value
         """
-        # move tensors to device
         log_probs: Tensor = batch["log_probs"].to(self._device)
         log_reward: Tensor = batch["log_reward"].to(self._device)
         mask: Tensor | None = batch.get("loss_mask")
@@ -107,7 +108,7 @@ class SubTBObjective(nn.Module):
         if eos_logprobs is not None:
             eos_logprobs = eos_logprobs.to(self._device)
 
-        # validate log_probs shape and prepare for loss (expects 2D)
+        # ensure 2D for loss functions
         if log_probs.dim() == 1:
             log_probs_2d = log_probs.unsqueeze(1)
             mask_2d = torch.ones_like(log_probs_2d, dtype=torch.bool)
@@ -117,7 +118,6 @@ class SubTBObjective(nn.Module):
         else:
             raise ValueError(f"log_probs must be 1D [B] or 2D [B, T], got shape {log_probs.shape}")
 
-        # validate ref_log_probs consistency
         if ref_log_probs is not None and not self.config.use_ref_policy:
             raise ValueError("ref_log_probs provided but use_ref_policy=False in SubTBConfig")
         if self.config.use_ref_policy and ref_log_probs is None:
@@ -132,7 +132,7 @@ class SubTBObjective(nn.Module):
             )
 
         if use_modified_subtb:
-            assert eos_logprobs is not None  # guaranteed by use_modified_subtb check
+            assert eos_logprobs is not None
             loss_tensor = self._compute_modified_subtb(
                 log_probs_2d, mask_2d, log_reward, eos_logprobs
             )
@@ -161,37 +161,17 @@ class SubTBObjective(nn.Module):
         log_reward: Tensor,
         ref_log_probs: Tensor | None,
     ) -> Tensor:
-        """Vanilla Trajectory Balance loss."""
-        mask_f = mask.float()
-        masked_logprobs = (log_probs * mask_f).sum(dim=-1)  # [B]
-
-        # reference policy correction
-        if ref_log_probs is not None:
-            if ref_log_probs.dim() == 1:
-                masked_ref = ref_log_probs
-            else:
-                masked_ref = (ref_log_probs * mask_f).sum(dim=-1)
-            if self.config.ref_weight != 1.0:
-                masked_ref = masked_ref * self.config.ref_weight
-            masked_logprobs = masked_logprobs - masked_ref
-
-        # length normalization
-        if self.config.normalize_by_length:
-            lengths = mask_f.sum(dim=-1).clamp_min(1.0)
-            masked_logprobs = masked_logprobs / lengths
-
-        # handle NaN/inf in log_reward
-        safe_log_reward = torch.where(
-            torch.isfinite(log_reward),
-            log_reward,
-            torch.full_like(log_reward, -self.config.tb_max_residual),
+        """Vanilla Trajectory Balance loss. Delegates to canonical subtb_loss()."""
+        return subtb_loss(
+            log_probs=log_probs,
+            loss_mask=mask,
+            log_rewards=log_reward,
+            logZ=self.logZ,
+            max_residual=self.config.tb_max_residual,
+            ref_log_probs=ref_log_probs,
+            ref_weight=self.config.ref_weight,
+            normalize_by_length=self.config.normalize_by_length,
         )
-
-        # TB: (logZ + log_pi - log_R)^2
-        residual = self.logZ + masked_logprobs - safe_log_reward
-        residual = residual.clamp(-self.config.tb_max_residual, self.config.tb_max_residual)
-
-        return (residual**2).mean()
 
     def _compute_modified_subtb(
         self,
@@ -200,79 +180,15 @@ class SubTBObjective(nn.Module):
         log_reward: Tensor,
         eos_logprobs: Tensor,
     ) -> Tensor:
-        """Modified Sub-Trajectory Balance loss (from gfn-lm-tuning)."""
-        B, T = log_probs.shape
-        device = log_probs.device
-        dtype = log_probs.dtype
-        subtb_lambda = self.config.subtb_lambda
-        max_residual = self.config.tb_max_residual
-
-        mask_f = mask.float()
-
-        # broadcast log_reward to [B, T] for safe operations
-        if log_reward.dim() == 1:
-            log_reward_2d = log_reward.unsqueeze(1).expand(B, T)
-        else:
-            log_reward_2d = log_reward
-
-        safe_log_rewards = torch.where(
-            torch.isfinite(log_reward_2d),
-            log_reward_2d,
-            torch.full_like(log_reward_2d, -max_residual),
+        """Modified SubTB loss. Delegates to canonical compute_modified_subtb_core()."""
+        return compute_modified_subtb_core(
+            log_probs=log_probs,
+            eos_logprobs=eos_logprobs,
+            log_rewards=log_reward,
+            mask=mask,
+            subtb_lambda=self.config.subtb_lambda,
+            max_residual=self.config.tb_max_residual,
         )
-
-        if T == 1:
-            traj_reward = safe_log_rewards[:, 0:1]
-            delta = log_probs - eos_logprobs + traj_reward
-        else:
-            eos_next = torch.cat([eos_logprobs[:, 1:], eos_logprobs[:, -1:]], dim=1)
-            delta = log_probs - eos_logprobs + eos_next
-
-            # find last valid position per sample
-            valid = mask_f > 0
-            idxs = torch.arange(T, device=device, dtype=torch.long)
-            last_valid_idx = torch.where(
-                valid.any(dim=1),
-                (valid.float() * idxs).long().max(dim=1).values,
-                torch.zeros(B, device=device, dtype=torch.long),
-            )
-
-            # anchor final position to reward
-            traj_reward = safe_log_rewards.gather(1, last_valid_idx.unsqueeze(1)).squeeze(1)
-            eos_next_at_last = eos_next.gather(1, last_valid_idx.unsqueeze(1)).squeeze(1)
-            correction = traj_reward - eos_next_at_last
-
-            correction_tensor = torch.zeros_like(delta)
-            correction_tensor.scatter_(1, last_valid_idx.unsqueeze(1), correction.unsqueeze(1))
-            delta = delta + correction_tensor
-
-        # zero masked positions
-        delta = torch.where(mask_f > 0, delta, torch.zeros_like(delta))
-
-        # cumulative sum
-        zeros = torch.zeros(B, 1, device=device, dtype=dtype)
-        delta_cumsum = torch.cat([zeros, delta], dim=1).cumsum(dim=1)
-        mask_cumsum = torch.cat([zeros, mask_f], dim=1).cumsum(dim=1)
-
-        has_valid = (mask_f.sum(dim=1) > 0).float().unsqueeze(1)
-
-        batch_loss = torch.tensor(0.0, device=device, dtype=dtype)
-        total_weight = torch.tensor(0.0, device=device, dtype=dtype)
-
-        for subtraj_len in range(1, T + 1):
-            residual = delta_cumsum[:, subtraj_len:] - delta_cumsum[:, :-subtraj_len]
-            residual = residual.clamp(-max_residual, max_residual)
-
-            mask_sum = mask_cumsum[:, subtraj_len:] - mask_cumsum[:, :-subtraj_len]
-            valid_mask = (mask_sum >= subtraj_len - 0.5).float() * has_valid
-
-            residual = torch.where(valid_mask > 0, residual, torch.zeros_like(residual))
-
-            weight = subtb_lambda ** (subtraj_len - 1)
-            batch_loss = batch_loss + weight * (residual**2).sum()
-            total_weight = total_weight + weight * valid_mask.sum()
-
-        return batch_loss / total_weight.clamp(min=1.0)
 
     def _compute_entropy_term(
         self,
@@ -301,7 +217,6 @@ class SubTBObjective(nn.Module):
         return {
             "logZ": self.logZ.item(),
             "config": {
-                "beta": self.config.beta,
                 "loss_type": self.config.loss_type,
                 "subtb_lambda": self.config.subtb_lambda,
                 "tb_max_residual": self.config.tb_max_residual,

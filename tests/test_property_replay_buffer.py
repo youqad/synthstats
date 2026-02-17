@@ -7,7 +7,7 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from synthstats.core.types import Message, Reward, Trajectory
-from synthstats.training.buffers import BufferEntry, GFNReplayBuffer, ReplayBuffer
+from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer, ReplayBuffer
 
 
 def make_trajectory(reward_total: float = 0.5) -> Trajectory:

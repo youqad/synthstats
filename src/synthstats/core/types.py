@@ -8,6 +8,8 @@ These dataclasses define the shared vocabulary across all components:
 - Trajectory: Complete episode data for training
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,7 +27,7 @@ class Message:
         return {"role": self.role, "content": self.content, "tool_call_id": self.tool_call_id}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Message":
+    def from_dict(cls, data: dict[str, Any]) -> Message:
         """Deserialize from dict."""
         return cls(
             role=data["role"], content=data["content"], tool_call_id=data.get("tool_call_id")
@@ -85,7 +87,7 @@ class Reward:
         return {"total": self.total, "components": self.components, "info": self.info}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Reward":
+    def from_dict(cls, data: dict[str, Any]) -> Reward:
         """Deserialize from dict."""
         return cls(total=data["total"], components=data["components"], info=data["info"])
 
@@ -130,7 +132,7 @@ class Trajectory:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Trajectory":
+    def from_dict(cls, data: dict[str, Any]) -> Trajectory:
         """Deserialize from dict."""
         return cls(
             messages=[Message.from_dict(m) for m in data["messages"]],

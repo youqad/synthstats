@@ -8,7 +8,7 @@ import torch.nn as nn
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from synthstats.training.losses.tb_loss import subtb_loss
+from synthstats.train.objectives.losses import subtb_loss
 
 
 class TestSubTBLossProperties:
@@ -128,13 +128,8 @@ class TestSubTBLossProperties:
         seq_len=st.integers(min_value=1, max_value=10),
     )
     @settings(max_examples=30)
-    def test_handles_inf_nan_rewards_gracefully(self, batch_size: int, seq_len: int):
-        """Loss should handle inf/NaN in log_rewards without crashing or producing NaN.
-
-        The implementation replaces inf/NaN with -max_residual (default -100.0),
-        preserving the "low reward" signal for GFlowNet training. Using 0.0 would
-        incorrectly treat failures as neutral/success cases.
-        """
+    def test_inf_nan_rewards_produce_finite_loss(self, batch_size: int, seq_len: int):
+        """inf/NaN log_rewards are replaced with -max_residual, producing finite loss."""
         log_probs = torch.randn(batch_size, seq_len)
         loss_mask = torch.ones(batch_size, seq_len, dtype=torch.bool)
         logZ = nn.Parameter(torch.tensor(0.5))

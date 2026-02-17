@@ -1,8 +1,6 @@
-"""Judge Protocol - defines the interface for reward computation.
+"""Judge protocol."""
 
-Judges compute reward signals from trajectories. SynthStats uses
-multi-component rewards (likelihood, format, LLM critique, entropy).
-"""
+from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 

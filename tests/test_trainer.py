@@ -2,7 +2,7 @@
 
 import pytest
 
-from synthstats.training.trainer import Trainer, TrainerConfig, TrainMetrics
+from synthstats.train.runners.gfn_trainer import Trainer, TrainerConfig, TrainMetrics
 
 
 class TestTrainerConfig:
@@ -16,9 +16,9 @@ class TestTrainerConfig:
         assert config.batch_size == 8
         assert config.max_episodes == 500
 
-    def test_logZ_learning_rate_default(self):
+    def test_logZ_lr_default(self):
         config = TrainerConfig()
-        assert config.logZ_learning_rate == 1e-2
+        assert config.logZ_lr == 0.01
 
     def test_replay_config(self):
         config = TrainerConfig(
@@ -67,13 +67,13 @@ class TestTrainer:
 
     @pytest.fixture
     def toy_task(self):
-        from synthstats.training.trainer import ToyTask
+        from tests.fixtures import ToyTask
 
         return ToyTask()
 
     @pytest.fixture
     def toy_judge(self):
-        from synthstats.training.trainer import ToyJudge
+        from tests.fixtures import ToyJudge
 
         return ToyJudge()
 
@@ -194,7 +194,7 @@ class TestTrainer:
 
     def test_seed_reproducibility(self, mock_policy, toy_task, codec, toy_judge):
         """Training with same seed should give same results."""
-        from synthstats.training.trainer import ToyTask
+        from tests.fixtures import ToyTask
 
         config = TrainerConfig(batch_size=2, seed=42)
 

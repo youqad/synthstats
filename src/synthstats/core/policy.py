@@ -1,8 +1,6 @@
-"""Policy Protocol - defines the interface for LLM wrappers.
+"""Policy protocol."""
 
-A Policy wraps an LLM and provides methods for generation and
-computing log probabilities (needed for GFlowNet training).
-"""
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable

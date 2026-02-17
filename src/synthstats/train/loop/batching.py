@@ -11,13 +11,171 @@ from typing import Any
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
+from synthstats.core.constants import REWARD_FLOOR_DEFAULT
 from synthstats.train.loop.collectors import CollectedTrajectory
+from synthstats.train.utils.device import normalize_device
+
+
+def extract_reward(obj: Any) -> float:
+    """Extract scalar reward from a Trajectory, Reward, or float."""
+    r = getattr(obj, "reward", obj)
+    if hasattr(r, "total"):
+        return float(r.total)
+    return float(r)
+
+
+def _validate_batch_inputs(
+    trajectories: list[CollectedTrajectory],
+    reward_floor: float,
+    device: str | torch.device,
+) -> torch.device:
+    """Shared validation for batch builders.
+
+    Returns:
+        Normalized torch.device
+    """
+    if not trajectories:
+        raise ValueError("trajectories must be non-empty")
+    if reward_floor <= 0:
+        raise ValueError(f"reward_floor must be > 0, got {reward_floor}")
+    return normalize_device(device)
+
+
+def _compute_log_rewards(
+    trajectories: list[CollectedTrajectory],
+    reward_floor: float,
+    device: torch.device,
+) -> torch.Tensor:
+    """Compute floored log rewards from trajectories.
+
+    Returns:
+        log_reward tensor [B] on device
+    """
+    rewards = torch.tensor(
+        [max(extract_reward(t), float(reward_floor)) for t in trajectories],
+        device=device,
+    )
+    return torch.log(rewards).detach()
+
+
+def _all_or_none_field(
+    trajectories: list[CollectedTrajectory],
+    *,
+    field: str,
+    label: str,
+) -> bool:
+    has_field = [getattr(t, field) is not None for t in trajectories]
+    if any(has_field) and not all(has_field):
+        raise ValueError(f"mixed {label}: provide for all or none")
+    return all(has_field)
+
+
+def _validate_base_tensors(t: CollectedTrajectory, index: int) -> None:
+    if not isinstance(t.log_probs, torch.Tensor):
+        raise ValueError(f"trajectory[{index}].log_probs must be torch.Tensor")
+    if not isinstance(t.entropy, torch.Tensor):
+        raise ValueError(f"trajectory[{index}].entropy must be torch.Tensor")
+    if t.log_probs.dim() != 1:
+        raise ValueError(f"trajectory[{index}].log_probs must be 1D [T]")
+    if t.entropy.dim() != 1:
+        raise ValueError(f"trajectory[{index}].entropy must be 1D [T]")
+    if t.log_probs.numel() == 0:
+        raise ValueError(f"trajectory[{index}] has empty log_probs")
+    if t.entropy.numel() != t.log_probs.numel():
+        raise ValueError(f"trajectory[{index}] length mismatch: log_probs vs entropy")
+
+
+def _require_optional_seq(
+    value: torch.Tensor | None,
+    *,
+    index: int,
+    label: str,
+    expected_len: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if value is None:
+        raise ValueError(f"trajectory[{index}] missing {label}")
+    if value.dim() != 1 or value.numel() != expected_len:
+        raise ValueError(f"trajectory[{index}].{label} shape mismatch")
+    return value.to(device)
+
+
+def _collect_subtb_sequences(
+    trajectories: list[CollectedTrajectory],
+    *,
+    device: torch.device,
+) -> tuple[
+    list[torch.Tensor],
+    list[torch.Tensor],
+    list[torch.Tensor] | None,
+    list[torch.Tensor] | None,
+]:
+    include_ref = _all_or_none_field(trajectories, field="ref_log_probs", label="ref_log_probs")
+    include_eos = _all_or_none_field(trajectories, field="eos_logprobs", label="eos_logprobs")
+
+    log_prob_seqs: list[torch.Tensor] = []
+    ent_seqs: list[torch.Tensor] = []
+    ref_log_prob_seqs: list[torch.Tensor] | None = [] if include_ref else None
+    eos_logprob_seqs: list[torch.Tensor] | None = [] if include_eos else None
+
+    for i, t in enumerate(trajectories):
+        _validate_base_tensors(t, i)
+        log_prob = t.log_probs.to(device)
+        entropy = t.entropy.to(device)
+        log_prob_seqs.append(log_prob)
+        ent_seqs.append(entropy)
+
+        if ref_log_prob_seqs is not None:
+            ref_log_prob_seqs.append(
+                _require_optional_seq(
+                    t.ref_log_probs,
+                    index=i,
+                    label="ref_log_probs",
+                    expected_len=log_prob.numel(),
+                    device=device,
+                )
+            )
+
+        if eos_logprob_seqs is not None:
+            eos_logprob_seqs.append(
+                _require_optional_seq(
+                    t.eos_logprobs,
+                    index=i,
+                    label="eos_logprobs",
+                    expected_len=log_prob.numel(),
+                    device=device,
+                )
+            )
+
+    return log_prob_seqs, ent_seqs, ref_log_prob_seqs, eos_logprob_seqs
+
+
+def _pad_optional(
+    sequences: list[torch.Tensor] | None,
+    *,
+    padding_value: float = 0.0,
+) -> torch.Tensor | None:
+    if sequences is None:
+        return None
+    return pad_sequence(sequences, batch_first=True, padding_value=padding_value)
+
+
+def _build_loss_mask(
+    log_prob_seqs: list[torch.Tensor],
+    *,
+    device: torch.device,
+) -> torch.Tensor:
+    return pad_sequence(
+        [torch.ones_like(lp, dtype=torch.bool, device=device) for lp in log_prob_seqs],
+        batch_first=True,
+        padding_value=False,
+    )
 
 
 def build_subtb_batch(
     trajectories: list[CollectedTrajectory],
     *,
-    reward_floor: float = 1e-4,
+    reward_floor: float = REWARD_FLOOR_DEFAULT,
     device: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
     """Build padded batch for SubTB/TB training.
@@ -36,96 +194,20 @@ def build_subtb_batch(
           - ref_log_probs: optional [B, T_max]
           - eos_logprobs: optional [B, T_max]
     """
-    if not trajectories:
-        raise ValueError("trajectories must be non-empty")
+    device_t = _validate_batch_inputs(trajectories, reward_floor, device)
 
-    device_t = torch.device(device) if not isinstance(device, torch.device) else device
-
-    if reward_floor <= 0:
-        raise ValueError(f"reward_floor must be > 0, got {reward_floor}")
-
-    log_prob_seqs: list[torch.Tensor] = []
-    ent_seqs: list[torch.Tensor] = []
-    eos_logprob_seqs: list[torch.Tensor] | None = None
-    ref_log_prob_seqs: list[torch.Tensor] | None = None
-
-    # check consistency
-    has_ref = [t.ref_log_probs is not None for t in trajectories]
-    if any(has_ref) and not all(has_ref):
-        raise ValueError("mixed ref_log_probs: provide for all or none")
-    if all(has_ref):
-        ref_log_prob_seqs = []
-
-    has_eos = [t.eos_logprobs is not None for t in trajectories]
-    if any(has_eos) and not all(has_eos):
-        raise ValueError("mixed eos_logprobs: provide for all or none")
-    if all(has_eos):
-        eos_logprob_seqs = []
-
-    for i, t in enumerate(trajectories):
-        if not isinstance(t.log_probs, torch.Tensor):
-            raise ValueError(f"trajectory[{i}].log_probs must be torch.Tensor")
-        if not isinstance(t.entropy, torch.Tensor):
-            raise ValueError(f"trajectory[{i}].entropy must be torch.Tensor")
-        if t.log_probs.dim() != 1:
-            raise ValueError(f"trajectory[{i}].log_probs must be 1D [T]")
-        if t.entropy.dim() != 1:
-            raise ValueError(f"trajectory[{i}].entropy must be 1D [T]")
-        if t.log_probs.numel() == 0:
-            raise ValueError(f"trajectory[{i}] has empty log_probs")
-        if t.entropy.numel() != t.log_probs.numel():
-            raise ValueError(f"trajectory[{i}] length mismatch: log_probs vs entropy")
-
-        log_prob_seqs.append(t.log_probs.to(device_t))
-        ent_seqs.append(t.entropy.to(device_t))
-
-        if ref_log_prob_seqs is not None:
-            ref = t.ref_log_probs
-            if ref is None:
-                raise ValueError(f"trajectory[{i}] missing ref_log_probs")
-            if ref.dim() != 1 or ref.numel() != t.log_probs.numel():
-                raise ValueError(f"trajectory[{i}].ref_log_probs shape mismatch")
-            ref_log_prob_seqs.append(ref.to(device_t))
-
-        if eos_logprob_seqs is not None:
-            eos = t.eos_logprobs
-            if eos is None:
-                raise ValueError(f"trajectory[{i}] missing eos_logprobs")
-            if eos.dim() != 1 or eos.numel() != t.log_probs.numel():
-                raise ValueError(f"trajectory[{i}].eos_logprobs shape mismatch")
-            eos_logprob_seqs.append(eos.to(device_t))
-
-    # pad
-    log_probs = pad_sequence(log_prob_seqs, batch_first=True, padding_value=0.0)
-    entropy = pad_sequence(ent_seqs, batch_first=True, padding_value=0.0)
-
-    ref_log_probs = None
-    if ref_log_prob_seqs is not None:
-        ref_log_probs = pad_sequence(ref_log_prob_seqs, batch_first=True, padding_value=0.0)
-
-    eos_logprobs = None
-    if eos_logprob_seqs is not None:
-        eos_logprobs = pad_sequence(eos_logprob_seqs, batch_first=True, padding_value=0.0)
-
-    # mask
-    mask = pad_sequence(
-        [torch.ones_like(lp, dtype=torch.bool, device=device_t) for lp in log_prob_seqs],
-        batch_first=True,
-        padding_value=False,
-    )
-
-    # rewards
-    def _get_reward(t: CollectedTrajectory) -> float:
-        r = t.reward
-        if hasattr(r, "total"):
-            return float(r.total)
-        return float(r)
-
-    rewards = torch.tensor(
-        [max(_get_reward(t), float(reward_floor)) for t in trajectories],
+    log_prob_seqs, ent_seqs, ref_log_prob_seqs, eos_logprob_seqs = _collect_subtb_sequences(
+        trajectories,
         device=device_t,
     )
-    log_reward = torch.log(rewards).detach()
+
+    log_probs = pad_sequence(log_prob_seqs, batch_first=True, padding_value=0.0)
+    entropy = pad_sequence(ent_seqs, batch_first=True, padding_value=0.0)
+    ref_log_probs = _pad_optional(ref_log_prob_seqs)
+    eos_logprobs = _pad_optional(eos_logprob_seqs)
+    mask = _build_loss_mask(log_prob_seqs, device=device_t)
+
+    log_reward = _compute_log_rewards(trajectories, reward_floor, device_t)
 
     result: dict[str, torch.Tensor] = {
         "log_probs": log_probs,
@@ -144,7 +226,7 @@ def build_subtb_batch(
 def build_tinker_batch(
     trajectories: list[CollectedTrajectory],
     *,
-    reward_floor: float = 1e-4,
+    reward_floor: float = REWARD_FLOOR_DEFAULT,
     device: str | torch.device = "cpu",
 ) -> dict[str, Any]:
     """Build batch for Tinker training (string-based).
@@ -157,13 +239,7 @@ def build_tinker_batch(
     Returns:
         Dict with prompts, completions, log_reward
     """
-    if not trajectories:
-        raise ValueError("trajectories must be non-empty")
-
-    device_t = torch.device(device) if not isinstance(device, torch.device) else device
-
-    if reward_floor <= 0:
-        raise ValueError(f"reward_floor must be > 0, got {reward_floor}")
+    device_t = _validate_batch_inputs(trajectories, reward_floor, device)
 
     prompts: list[str] = []
     completions: list[str] = []
@@ -178,17 +254,7 @@ def build_tinker_batch(
         prompts.append(prompt)
         completions.append(completion)
 
-    def _get_reward(t: CollectedTrajectory) -> float:
-        r = t.reward
-        if hasattr(r, "total"):
-            return float(r.total)
-        return float(r)
-
-    rewards = torch.tensor(
-        [max(_get_reward(t), float(reward_floor)) for t in trajectories],
-        device=device_t,
-    )
-    log_reward = torch.log(rewards).detach()
+    log_reward = _compute_log_rewards(trajectories, reward_floor, device_t)
 
     result: dict[str, Any] = {
         "prompts": prompts,
@@ -200,14 +266,12 @@ def build_tinker_batch(
 
 
 def _reconstruct_prompt(observations: list[str]) -> str:
-    """Reconstruct prompt from observations."""
     if not observations:
         return ""
     return "\n".join(observations)
 
 
 def _reconstruct_completion(actions: list[dict[str, Any]]) -> str:
-    """Reconstruct completion from actions."""
     import json
 
     if not actions:
