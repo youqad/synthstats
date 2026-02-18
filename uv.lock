@@ -5174,6 +5174,7 @@ dependencies = [
     { name = "omegaconf" },
     { name = "pandas" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "rich" },
     { name = "scipy" },
     { name = "torch" },
@@ -5217,6 +5218,9 @@ ml = [
 pymc = [
     { name = "arviz" },
     { name = "pymc" },
+]
+runpod = [
+    { name = "openai" },
 ]
 skyrl = [
     { name = "skyrl-train", marker = "python_full_version < '3.13' and sys_platform == 'linux'" },
@@ -5273,6 +5277,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "omegaconf", specifier = ">=2.3.0" },
+    { name = "openai", marker = "extra == 'runpod'", specifier = ">=1.0" },
     { name = "pandas", specifier = ">=2.2.0" },
     { name = "peft", marker = "extra == 'ml'", specifier = ">=0.7.0" },
     { name = "peft", marker = "extra == 'training'", specifier = ">=0.7.0" },
@@ -5280,6 +5285,7 @@ requires-dist = [
     { name = "pymc", marker = "extra == 'pymc'", specifier = ">=5.10.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ray", marker = "extra == 'gym'", specifier = ">=2.9.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9.0" },
@@ -5295,7 +5301,7 @@ requires-dist = [
     { name = "vllm", marker = "python_full_version == '3.12.*' and sys_platform == 'linux' and extra == 'skyrl'", specifier = ">=0.6.0" },
     { name = "wandb", marker = "extra == 'wandb'", specifier = ">=0.16.0" },
 ]
-provides-extras = ["dev", "ml", "pymc", "gym", "wandb", "tinker", "swe", "skyrl", "training", "large", "docs"]
+provides-extras = ["dev", "ml", "pymc", "gym", "wandb", "runpod", "tinker", "swe", "skyrl", "training", "large", "docs"]
 
 [package.metadata.requires-dev]
 dev = [

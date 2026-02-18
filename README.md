@@ -82,6 +82,41 @@ Notes:
 - `sft_warmstart.compute_rewards=true` can be slow (executes programs to score them).
 - Optional knobs: `sft_warmstart.max_examples`, `sft_warmstart.log_clamp=[-700,700]`, `sft_warmstart.show_progress=false`.
 
+AB-SubTB (action-boundary SubTB) can be enabled via objective overrides:
+
+```bash
+uv run synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b \
+  objective.loss_type=ab_subtb \
+  objective.ab_subtb_alpha=0.1 \
+  objective.use_boundary_critic=true
+```
+
+AB-SubTB summary:
+- Keeps vanilla TB as anchor and adds an action-boundary SubTB regularizer.
+- Optional boundary critic can be enabled with:
+  - `objective.use_boundary_critic=true`
+  - `objective.boundary_critic_hidden_dim=32`
+  - `objective.boundary_critic_loss_coef=1.0`
+- Main knobs in `configs/objective/subtb.yaml`:
+  - `loss_type`: `tb | modified_subtb | ab_subtb`
+  - `subtb_lambda`
+  - `ab_subtb_alpha`
+  - boundary critic knobs above
+
+Backend support:
+- Local objective path: supported.
+- `SkyRLSubTBTrainer` wrapper path: supported.
+- Tinker TB/endpoint-SubTB path: unchanged by default.
+
+Checkpointing:
+- Objective state includes boundary critic parameters when enabled.
+- `SkyRLSubTBTrainer` state now restores full objective state with backward-compatible
+  fallback for older `logZ`-only checkpoints.
+
+Commit-visible details are in `AB_SUBTB.md`.
+Note: `docs/` is currently ignored in this repository, so `README.md` and
+`AB_SUBTB.md` are the tracked sources of truth.
+
 Run tests:
 
 ```bash

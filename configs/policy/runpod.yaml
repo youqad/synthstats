@@ -1,0 +1,12 @@
+# requires RUNPOD_ENDPOINT_ID and optionally RUNPOD_API_KEY
+_target_: synthstats.policies.runpod_policy.RunPodPolicy
+config:
+  _target_: synthstats.policies.runpod_policy.RunPodConfig
+  endpoint_id: ${oc.env:RUNPOD_ENDPOINT_ID}
+  api_key: ${oc.env:RUNPOD_API_KEY,null}
+  model: Qwen/Qwen3-4B-Instruct-2507
+  max_tokens: 300
+  temperature: 0.7
+  top_logprobs: 20
+  timeout: 120.0
+  max_retries: 3

@@ -1,0 +1,9 @@
+# requires TINKER_BASE_URL; api key can be any dummy value for SkyRL
+_target_: synthstats.integrations.tinker.adapter.TinkerPolicy
+config:
+  _target_: synthstats.integrations.tinker.adapter.TinkerConfig
+  api_key: ${oc.env:TINKER_API_KEY,tml-dummy}
+  base_url: ${oc.env:TINKER_BASE_URL}
+  model: Qwen/Qwen3-4B-Instruct-2507
+  max_tokens: 300
+  temperature: 0.7
