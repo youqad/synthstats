@@ -10,15 +10,14 @@ import torch
 
 from synthstats.train.checkpointing.base import (
     CheckpointState,
+    _BaseCheckpointManager,
     extract_logZ,
-    find_latest_checkpoint,
-    should_save,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class MinimalCheckpoint:
+class MinimalCheckpoint(_BaseCheckpointManager):
     """Saves step count and logZ only; backend manages the rest."""
 
     def __init__(
@@ -30,18 +29,6 @@ class MinimalCheckpoint:
         self.save_dir = Path(save_dir)
         self.every_steps = every_steps
         self.resume_from = Path(resume_from) if resume_from else None
-
-    def maybe_save(
-        self,
-        step: int,
-        learner: Any,
-        policy: Any | None = None,
-        replay_buffer: Any | None = None,
-        metrics_history: list[dict[str, float]] | None = None,
-    ) -> Path | None:
-        if not should_save(step, self.every_steps):
-            return None
-        return self.save(step, learner, policy, replay_buffer, metrics_history)
 
     def save(
         self,
@@ -84,5 +71,3 @@ class MinimalCheckpoint:
             metrics_history=data.get("metrics_history", []),
         )
 
-    def find_latest(self) -> Path | None:
-        return find_latest_checkpoint(self.save_dir)

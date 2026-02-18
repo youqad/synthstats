@@ -88,6 +88,91 @@ def subtb_loss(
     return loss
 
 
+def compute_action_subtb_core(
+    log_pf: Tensor,
+    u: Tensor,
+    mask: Tensor | None,
+    *,
+    subtb_lambda: float = 0.9,
+    max_residual: float = 100.0,
+) -> Tensor:
+    """Action-boundary SubTB core loss.
+
+    This is the same delta-cumsum pattern as token-level modified SubTB, but on
+    action transitions:
+
+    delta[i] = u[i] + log_pf[i] - u[i+1]
+
+    where:
+    - log_pf: per-action forward logprobs [B, K]
+    - u: boundary potentials [B, K+1]
+    - mask: valid-action mask [B, K]
+    """
+    if log_pf.dim() != 2:
+        raise ValueError(f"log_pf must be 2D [B, K], got shape={tuple(log_pf.shape)}")
+    if u.dim() != 2:
+        raise ValueError(f"u must be 2D [B, K+1], got shape={tuple(u.shape)}")
+    if u.shape[0] != log_pf.shape[0] or u.shape[1] != log_pf.shape[1] + 1:
+        raise ValueError(
+            "u shape must be [B, K+1] for log_pf [B, K]: "
+            f"log_pf={tuple(log_pf.shape)} u={tuple(u.shape)}"
+        )
+    if mask is not None and mask.shape != log_pf.shape:
+        raise ValueError(
+            "mask must match log_pf shape when provided: "
+            f"mask={tuple(mask.shape)} log_pf={tuple(log_pf.shape)}"
+        )
+
+    B, K = log_pf.shape
+    device = log_pf.device
+    dtype = log_pf.dtype
+
+    if K == 0:
+        # graph-connected zero for degenerate empty-action batches
+        zero = (u.sum() + log_pf.sum()) * 0.0
+        if not zero.requires_grad:
+            zero = zero.requires_grad_()
+        return zero
+
+    transition_mask = (
+        mask.to(device=device, dtype=torch.bool)
+        if mask is not None
+        else torch.ones(B, K, dtype=torch.bool, device=device)
+    )
+    mask_f = transition_mask.float()
+
+    safe_log_pf = sanitize_finite(log_pf, -max_residual)
+    safe_u = sanitize_finite(u, -max_residual)
+
+    delta = safe_u[:, :-1] + safe_log_pf - safe_u[:, 1:]
+    delta = torch.where(transition_mask, delta, torch.zeros_like(delta))
+    delta = delta.clamp(-max_residual, max_residual)
+
+    zeros = torch.zeros(B, 1, device=device, dtype=dtype)
+    delta_cumsum = torch.cat([zeros, delta], dim=1).cumsum(dim=1)
+    mask_cumsum = torch.cat([zeros, mask_f], dim=1).cumsum(dim=1)
+
+    has_valid = (mask_f.sum(dim=1) > 0).float().unsqueeze(1)
+
+    batch_loss = torch.tensor(0.0, device=device, dtype=dtype)
+    total_weight = torch.tensor(0.0, device=device, dtype=dtype)
+
+    for subtraj_len in range(1, K + 1):
+        residual = delta_cumsum[:, subtraj_len:] - delta_cumsum[:, :-subtraj_len]
+        residual = residual.clamp(-max_residual, max_residual)
+
+        mask_sum = mask_cumsum[:, subtraj_len:] - mask_cumsum[:, :-subtraj_len]
+        valid_mask = (mask_sum >= subtraj_len - 0.5).float() * has_valid
+
+        residual = residual * valid_mask
+
+        weight = subtb_lambda ** (subtraj_len - 1)
+        batch_loss = batch_loss + weight * (residual**2).sum()
+        total_weight = total_weight + weight * valid_mask.sum()
+
+    return batch_loss / total_weight.clamp(min=1.0)
+
+
 def compute_modified_subtb_core(
     log_probs: Tensor,
     eos_logprobs: Tensor,

@@ -1,8 +1,12 @@
-loss_type: tb  # tb | modified_subtb
+loss_type: tb  # tb | modified_subtb | ab_subtb
 subtb_lambda: 0.9
 tb_max_residual: 100.0
 
 logZ_init: 0.0
+ab_subtb_alpha: 0.1
+use_boundary_critic: false
+boundary_critic_hidden_dim: 32
+boundary_critic_loss_coef: 1.0
 
 ref_policy:
   enabled: false

@@ -11,6 +11,7 @@ import torch.nn as nn
 
 from synthstats.core.policy import GenConfig, Generation, TokenLogProbs
 from synthstats.core.types import Message
+from synthstats.policies.parsing import parse_action, render_action
 
 if TYPE_CHECKING:
     pass
@@ -299,7 +300,7 @@ class HFPolicy:
             if eos_id is not None:
                 self._last_eos_logprob_final = float(log_probs[eos_id].item())
 
-        action = self._parse_action(gen_text)
+        action = parse_action(gen_text)
 
         if self.require_grad_logp:
             return action, logp, ent
@@ -319,7 +320,7 @@ class HFPolicy:
     def score_action(self, obs: str, action: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
         prompt = self._build_prompt(obs)
         prompt_ids = self.tokenizer(prompt, add_special_tokens=True).input_ids
-        action_text = self._render_action(action)
+        action_text = render_action(action)
         action_ids = self.tokenizer(action_text, add_special_tokens=False).input_ids
         full_ids = torch.tensor([prompt_ids + action_ids], device=self.device)
         logp, ent, final_logits = self._score_generated(full_ids, prompt_len=len(prompt_ids))
@@ -364,41 +365,6 @@ class HFPolicy:
                 pass
 
         return f"User: {obs}\nAssistant:"
-
-    def _parse_action(self, text: str) -> dict[str, Any]:
-        import json
-        import re
-
-        text = text.strip()
-
-        # strip <think>...</think> blocks
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-
-        tc_match = re.search(r"<tool_call>(.*?)</tool_call>", text, re.DOTALL)
-        if tc_match:
-            try:
-                return json.loads(tc_match.group(1).strip())
-            except json.JSONDecodeError:
-                pass
-
-        sp_match = re.search(r"<submit_program>(.*?)</submit_program>", text, re.DOTALL)
-        if sp_match:
-            return {"type": "submit_program", "payload": sp_match.group(1).strip()}
-
-        try:
-            if "{" in text:
-                start = text.index("{")
-                end = text.rindex("}") + 1
-                return json.loads(text[start:end])
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        return {"type": "answer", "payload": text}
-
-    def _render_action(self, action: dict[str, Any]) -> str:
-        import json
-
-        return json.dumps(action)
 
     @staticmethod
     def _compute_logp_entropy(

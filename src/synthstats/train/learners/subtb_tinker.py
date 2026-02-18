@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 class SubTBTinkerConfig:
 
     api_key: str | None = None
+    base_url: str | None = None
     model: str = "Qwen/Qwen3-4B"
     lora_rank: int = 32
     learning_rate: float = 1e-5
@@ -41,6 +42,7 @@ class SubTBTinkerLearner:
             tinker_config = TinkerConfig(
                 model=self.config.model,
                 api_key=self.config.api_key,
+                base_url=self.config.base_url,
                 lora_rank=self.config.lora_rank,
                 learning_rate=self.config.learning_rate,
             )

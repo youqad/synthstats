@@ -125,6 +125,27 @@ class TestComputeEndpointSubTBLoss:
         assert log_pf.grad is not None
         assert torch.all(torch.isfinite(log_pf.grad))
 
+    def test_no_valid_subtrajectories_fp16_overflow(self):
+        """Long fp16 sequences must not overflow in the zero-loss branch."""
+        B, T = 1, 2000
+        log_pf = torch.full((B, T), -30.0, dtype=torch.float16, requires_grad=True)
+        log_reward = torch.zeros(B, T + 1, dtype=torch.float16)
+        eos_logprob = torch.full((B, T + 1), -1.0, dtype=torch.float16)
+
+        eos_available = torch.zeros(B, T + 1, dtype=torch.bool)
+        eos_available[0, 0] = True
+
+        loss, _ = compute_endpoint_subtb_loss(
+            log_pf=log_pf,
+            log_reward=log_reward,
+            eos_logprob=eos_logprob,
+            eos_available=eos_available,
+        )
+
+        assert torch.isfinite(loss), f"fp16 overflow: loss={loss.item()}"
+        assert loss.item() == 0.0
+        assert loss.requires_grad
+
     def test_lambda_weighting(self):
         B, T = 1, 3
         log_pf = torch.full((B, T), -0.5)

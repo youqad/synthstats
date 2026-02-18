@@ -15,6 +15,38 @@ from typing import Any, Protocol, runtime_checkable
 logger = logging.getLogger(__name__)
 
 
+class _BaseCheckpointManager:
+    """Shared methods for checkpoint managers."""
+
+    save_dir: Path
+    every_steps: int
+
+    def save(
+        self,
+        step: int,
+        learner: Any,
+        policy: Any | None = None,
+        replay_buffer: Any | None = None,
+        metrics_history: list[dict[str, float]] | None = None,
+    ) -> Path:
+        raise NotImplementedError
+
+    def maybe_save(
+        self,
+        step: int,
+        learner: Any,
+        policy: Any | None = None,
+        replay_buffer: Any | None = None,
+        metrics_history: list[dict[str, float]] | None = None,
+    ) -> Path | None:
+        if not should_save(step, self.every_steps):
+            return None
+        return self.save(step, learner, policy, replay_buffer, metrics_history)
+
+    def find_latest(self) -> Path | None:
+        return find_latest_checkpoint(self.save_dir)
+
+
 def extract_logZ(learner: Any) -> float:
     logZ = learner.logZ if hasattr(learner, "logZ") else 0.0
     if hasattr(logZ, "item"):
@@ -56,6 +88,7 @@ class CheckpointState:
     rng_states: dict[str, Any]
     replay_buffer: dict[str, Any] | None
     config: dict[str, Any]
+    learner_state: dict[str, Any] | None = None
     metrics_history: list[dict[str, float]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +100,7 @@ class CheckpointState:
             "rng_states": self.rng_states,
             "replay_buffer": self.replay_buffer,
             "config": self.config,
+            "learner_state": self.learner_state,
             "metrics_history": self.metrics_history,
         }
 
@@ -80,6 +114,7 @@ class CheckpointState:
             rng_states=data.get("rng_states", {}),
             replay_buffer=data.get("replay_buffer"),
             config=data.get("config", {}),
+            learner_state=data.get("learner_state"),
             metrics_history=data.get("metrics_history", []),
         )
 

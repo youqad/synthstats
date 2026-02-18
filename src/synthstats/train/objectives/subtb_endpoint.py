@@ -105,8 +105,8 @@ def compute_endpoint_subtb_loss(
             "subtb_warning": 1.0,
         }
         # graph-connected zero for DDP safety (matches trajectory_balance.py);
-        # use safe_log_pf so NaN in log_pf doesn't propagate via NaN*0=NaN
-        zero = safe_log_pf.sum() * 0.0
+        # multiply before sum so fp16 can't overflow on long sequences
+        zero = (safe_log_pf * 0.0).sum()
         if not zero.requires_grad:
             zero = zero.requires_grad_()
         return zero, metrics

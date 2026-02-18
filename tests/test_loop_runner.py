@@ -1,6 +1,6 @@
-"""Integration tests for the training loop: replay buffers, collectors, batching.
+"""Training loop integration: replay buffers, collectors, batching.
 
-Exercises the GFN replay + EOS code path and prioritized sampling math.
+Exercises GFN replay + EOS code path and prioritized sampling math.
 """
 
 import math
@@ -10,8 +10,8 @@ from typing import Any
 import pytest
 import torch
 
-from synthstats.train.loop.collectors import CollectedTrajectory, TrajectoryCollector
-from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+from synthstats.train.data.collectors import CollectedTrajectory, TrajectoryCollector
+from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
 # ---- helpers ----
 
@@ -43,7 +43,6 @@ def _make_trajectory(
 
 
 class _MockPolicy:
-    """Minimal policy that supports score_action with EOS logprob."""
 
     def __init__(self) -> None:
         self._last_eos_logprob_final: float | None = None
@@ -75,7 +74,6 @@ class _MockPolicy:
 
 
 class _MockEnv:
-    """Minimal env stub for collector tests."""
 
     chat_history: list[dict[str, str]] | None = None
 
@@ -91,7 +89,6 @@ class _MockEnv:
 
 
 class TestGFNReplayBufferPrioritizedMath:
-    """Verify prioritized sampling uses exp(α * log R)."""
 
     def test_uniform_when_alpha_zero(self):
         random.seed(99)  # seed at start for determinism
@@ -109,7 +106,6 @@ class TestGFNReplayBufferPrioritizedMath:
             assert 300 < c < 500, f"Entry {i} got {c}/2000 samples, expected ~400"
 
     def test_high_reward_sampled_more(self):
-        """Entries with higher log_reward should be sampled more frequently."""
         buf = GFNReplayBuffer(capacity=100, prioritized=True, alpha=1.0)
 
         # add 9 low-reward and 1 high-reward entries
@@ -128,7 +124,6 @@ class TestGFNReplayBufferPrioritizedMath:
         assert proportion > 0.8, f"Expected >80% high-reward, got {proportion:.1%}"
 
     def test_numerical_stability_extreme_log_rewards(self):
-        """Should not overflow with very large log_rewards."""
         buf = GFNReplayBuffer(capacity=100, prioritized=True, alpha=1.0)
         buf.add(_make_entry(log_reward=500.0))
         buf.add(_make_entry(log_reward=700.0))
@@ -148,7 +143,7 @@ class TestGFNReplayBufferPrioritizedMath:
         assert len(selected) == 1000
 
     def test_negative_log_rewards(self):
-        """Typical regime: log(reward) < 0 for reward in (0, 1)."""
+        """typical regime: log(reward) < 0 for reward in (0, 1)."""
         buf = GFNReplayBuffer(capacity=100, prioritized=True, alpha=1.0)
         for _ in range(9):
             buf.add(_make_entry(log_reward=-3.0))
@@ -166,7 +161,6 @@ class TestGFNReplayBufferPrioritizedMath:
 
 
 class _MockCollector:
-    """Minimal ReplayCollector for buffer.sample() tests."""
 
     def replay_entry(self, entry: Any, temperature: float = 1.0) -> CollectedTrajectory | None:
         n = len(entry.actions)
@@ -183,10 +177,7 @@ class _MockCollector:
 
 
 class TestReplayEntryEOSLogprobs:
-    """Verify replay_entry captures EOS logprobs from score_fn."""
-
     def test_replay_entry_captures_eos(self):
-        """replay_entry should set eos_logprobs when score_fn provides them."""
         env = _MockEnv()
         policy = _MockPolicy()
         collector = TrajectoryCollector(env=env, policy_fn=policy)
@@ -201,7 +192,6 @@ class TestReplayEntryEOSLogprobs:
         assert torch.allclose(result.eos_logprobs, torch.tensor([-2.0, -2.0]))
 
     def test_replay_entry_no_eos_when_score_fn_doesnt_set_it(self):
-        """replay_entry should have eos_logprobs=None if score_fn doesn't set attr."""
 
         class PolicyNoEOS:
             _last_eos_logprob_final = None
@@ -224,10 +214,9 @@ class TestReplayEntryEOSLogprobs:
 
 
 class TestBatchBuildingEOSMixing:
-    """Verify build_subtb_batch handles EOS logprobs consistently."""
 
     def test_all_with_eos_succeeds(self):
-        from synthstats.train.loop.batching import build_subtb_batch
+        from synthstats.train.data.collate import build_subtb_batch
 
         trajs = [_make_trajectory(with_eos=True) for _ in range(3)]
         batch = build_subtb_batch(trajs)
@@ -235,15 +224,14 @@ class TestBatchBuildingEOSMixing:
         assert batch["eos_logprobs"].shape[0] == 3
 
     def test_none_with_eos_succeeds(self):
-        from synthstats.train.loop.batching import build_subtb_batch
+        from synthstats.train.data.collate import build_subtb_batch
 
         trajs = [_make_trajectory(with_eos=False) for _ in range(3)]
         batch = build_subtb_batch(trajs)
         assert "eos_logprobs" not in batch
 
     def test_mixed_eos_raises(self):
-        """Mixing trajectories with/without eos_logprobs should raise ValueError."""
-        from synthstats.train.loop.batching import build_subtb_batch
+        from synthstats.train.data.collate import build_subtb_batch
 
         trajs = [
             _make_trajectory(with_eos=True),
@@ -253,8 +241,7 @@ class TestBatchBuildingEOSMixing:
             build_subtb_batch(trajs)
 
     def test_replay_and_fresh_both_have_eos(self):
-        """Both collect() and replay_entry() must produce matching EOS presence."""
-        from synthstats.train.loop.batching import build_subtb_batch
+        from synthstats.train.data.collate import build_subtb_batch
 
         env = _MockEnv()
         policy = _MockPolicy()
@@ -277,10 +264,8 @@ class TestBatchBuildingEOSMixing:
 
 
 class TestLoopRunnerEOSStripping:
-    """Regression: LoopRunner must strip EOS when mixing fresh + replay."""
 
     def test_strips_eos_when_fresh_has_eos_and_replay_lacks_it(self):
-        """Fresh trajectories with EOS + GFN replay without EOS → strip all EOS."""
         from synthstats.train.loop.loop_runner import LoopConfig, LoopRunner
 
         captured_batches: list[dict] = []
@@ -295,7 +280,6 @@ class TestLoopRunnerEOSStripping:
                 return 0.0
 
         class _FreshEOSCollector:
-            """Collector where collect() returns EOS but replay_entry() does not."""
 
             def collect(self, episodes: int, temperature: float, **kw):
                 return [
@@ -321,11 +305,10 @@ class TestLoopRunnerEOSStripping:
         loop.train_step()
 
         assert len(captured_batches) == 2
-        # the second batch should NOT have eos_logprobs (stripped by guard)
+        # second batch should not have eos_logprobs (stripped by guard)
         assert "eos_logprobs" not in captured_batches[1]
 
     def test_no_strip_when_all_have_eos(self):
-        """If both fresh and replay have EOS, don't strip."""
         from synthstats.train.loop.loop_runner import LoopConfig, LoopRunner
 
         captured_batches: list[dict] = []
@@ -340,7 +323,6 @@ class TestLoopRunnerEOSStripping:
                 return 0.0
 
         class _AllEOSCollector:
-            """Both collect() and replay_entry() return EOS."""
 
             def collect(self, episodes: int, temperature: float, **kw):
                 return [
@@ -366,8 +348,72 @@ class TestLoopRunnerEOSStripping:
         assert len(captured_batches) == 2
         assert "eos_logprobs" in captured_batches[1]
 
+    def test_non_dataclass_trajectory_not_replaced(self):
+        """Non-dataclass trajectories skip replace() without crashing."""
+        from synthstats.train.loop.loop_runner import LoopConfig, LoopRunner
+
+        captured_trajectories: list[list] = []
+
+        class _CaptureLearner:
+            def update(self, batch: Any) -> dict[str, float]:
+                return {"loss": 0.0}
+
+            @property
+            def logZ(self) -> float:
+                return 0.0
+
+        class _PlainTrajectory:
+            """Non-dataclass trajectory without eos_logprobs attr."""
+
+            def __init__(self, reward: float = 1.0, n_steps: int = 2):
+                self.observations = [f"obs_{i}" for i in range(n_steps)]
+                self.actions = [{"type": "query", "payload": str(i)} for i in range(n_steps)]
+                self.log_probs = torch.randn(n_steps)
+                self.entropy = torch.randn(n_steps).abs()
+                self.reward = reward
+
+        class _MixedCollector:
+            def collect(self, episodes: int, temperature: float, **kw):
+                return [
+                    _make_trajectory(n_steps=2, reward=1.0, with_eos=True) for _ in range(episodes)
+                ]
+
+            def replay_entry(self, entry, temperature: float = 1.0):
+                return _PlainTrajectory()
+
+        def _capture_batch_builder(trajs, **kw):
+            captured_trajectories.append(trajs)
+            return {"log_pf": torch.zeros(1)}
+
+        collector = _MixedCollector()
+        learner = _CaptureLearner()
+        cfg = LoopConfig(
+            batch_size=4,
+            replay_buffer_size=20,
+            replay_ratio=0.5,
+            use_gfn_replay=True,
+        )
+        loop = LoopRunner(
+            collector=collector,
+            learner=learner,
+            config=cfg,
+            batch_builder=_capture_batch_builder,
+        )
+
+        loop.train_step()
+        loop.train_step()
+
+        assert len(captured_trajectories) == 2
+        # second batch mixes dataclass + plain; plain should pass through unchanged
+        mixed_batch = captured_trajectories[1]
+        plain_count = sum(1 for t in mixed_batch if isinstance(t, _PlainTrajectory))
+        assert plain_count > 0, "non-dataclass trajectories should survive the guard"
+        # all should have eos_logprobs stripped or absent
+        for t in mixed_batch:
+            eos = getattr(t, "eos_logprobs", None)
+            assert eos is None, f"expected eos_logprobs=None, got {eos}"
+
     def test_no_strip_when_none_have_eos(self):
-        """If neither fresh nor replay have EOS, nothing to strip."""
         from synthstats.train.loop.loop_runner import LoopConfig, LoopRunner
 
         captured_batches: list[dict] = []

@@ -1,9 +1,4 @@
-"""Base protocol for learners.
-
-Learners update model parameters from trajectory batches:
-- SubTBTorchLearner: PyTorch optimizer-based updates
-- SubTBTinkerLearner: Tinker API-based updates
-"""
+"""Base protocol for learners."""
 
 from __future__ import annotations
 
@@ -12,39 +7,14 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class Learner(Protocol):
-    """Protocol for parameter update implementations.
-
-    Learners take batches of trajectories and update model parameters.
-    They own the optimizer and handle gradient computation.
-
-    Example:
-        >>> learner = SubTBTorchLearner(objective, policy, cfg)
-        >>> metrics = learner.update(batch)
-        >>> print(f"Loss: {metrics['loss']}")
-    """
 
     def update(self, batch: dict[str, Any]) -> dict[str, float]:
-        """Update parameters from a batch.
-
-        Args:
-            batch: Dict with keys like log_probs, log_reward, mask, entropy
-
-        Returns:
-            Dict with metrics (loss, logZ, etc.)
-        """
+        """Update parameters from a batch, return metrics."""
         ...
 
-    def state_dict(self) -> dict[str, Any]:
-        """Serialize learner state for checkpointing.
+    def state_dict(self) -> dict[str, Any]: ...
 
-        Returns:
-            Dict with optimizer state, logZ value, etc.
-        """
-        ...
-
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        """Restore learner state from checkpoint."""
-        ...
+    def load_state_dict(self, state: dict[str, Any]) -> None: ...
 
     @property
     def logZ(self) -> float:

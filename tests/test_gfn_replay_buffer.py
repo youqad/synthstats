@@ -1,8 +1,7 @@
-"""Tests for GFNReplayBuffer.
+"""GFNReplayBuffer tests.
 
-GFNReplayBuffer stores action sequences (no tensors) and re-scores them
-with the current policy when sampled. This eliminates off-policy bias
-from stale log_probs.
+Stores action sequences (no tensors) and re-scores with current policy
+when sampled, eliminating off-policy bias from stale log_probs.
 """
 
 from dataclasses import dataclass, field
@@ -13,13 +12,6 @@ import torch
 
 @dataclass
 class MockTrajectory:
-    """Mock trajectory for testing GFNReplayBuffer.
-
-    Mimics the interface expected by add_from_trajectory():
-    - actions: list of action dicts
-    - observations: list of observation strings
-    - temperature: float (optional)
-    """
 
     observations: list[str]
     actions: list[dict[str, Any]]
@@ -30,11 +22,8 @@ class MockTrajectory:
 
 
 class TestBufferEntry:
-    """Test BufferEntry dataclass."""
-
     def test_buffer_entry_creation(self):
-        """BufferEntry stores actions and observations without tensors."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
 
         entry = BufferEntry(
             actions=[{"type": "query", "payload": "x"}, {"type": "answer", "payload": "42"}],
@@ -51,8 +40,7 @@ class TestBufferEntry:
         assert entry.temperature == 0.7
 
     def test_buffer_entry_has_timestamp(self):
-        """BufferEntry auto-populates timestamp."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
 
         entry = BufferEntry(
             actions=[{}],
@@ -62,8 +50,7 @@ class TestBufferEntry:
         assert entry.timestamp > 0
 
     def test_buffer_entry_default_values(self):
-        """BufferEntry has sensible defaults."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
 
         entry = BufferEntry(
             actions=[{"type": "answer"}],
@@ -76,17 +63,13 @@ class TestBufferEntry:
 
 
 class TestGFNReplayBufferBasics:
-    """Basic add/len operations."""
-
     def test_buffer_import(self):
-        """GFNReplayBuffer should be importable."""
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         assert GFNReplayBuffer is not None
 
     def test_buffer_add_and_len(self):
-        """GFNReplayBuffer tracks size correctly."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         assert len(buffer) == 0
@@ -98,8 +81,7 @@ class TestGFNReplayBufferBasics:
         assert len(buffer) == 2
 
     def test_buffer_capacity_eviction(self):
-        """Oldest entries evicted when at capacity."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=3)
 
@@ -120,8 +102,7 @@ class TestGFNReplayBufferBasics:
         assert log_rewards == {2.0, 3.0, 4.0}
 
     def test_buffer_iteration(self):
-        """Buffer supports iteration."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         buffer.add(BufferEntry(actions=[{}], log_reward=1.0, observations=["obs"]))
@@ -132,19 +113,15 @@ class TestGFNReplayBufferBasics:
 
 
 class TestGFNReplayBufferAddFromTrajectory:
-    """Test conversion from CollectedTrajectory to BufferEntry."""
-
     def test_add_from_trajectory_extracts_actions(self):
-        """add_from_trajectory extracts actions without tensors."""
-        # use MockTrajectory defined at top of file
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
         traj = MockTrajectory(
             observations=["obs1", "obs2"],
             actions=[{"type": "query"}, {"type": "answer"}],
-            log_probs=torch.tensor([-0.5, -0.3]),  # should NOT be stored
+            log_probs=torch.tensor([-0.5, -0.3]),  # not stored in buffer
             entropy=torch.tensor([0.1, 0.2]),
             reward=1.0,
         )
@@ -157,9 +134,7 @@ class TestGFNReplayBufferAddFromTrajectory:
         assert entry.observations == ["obs1", "obs2"]
 
     def test_add_from_trajectory_stores_log_reward(self):
-        """add_from_trajectory stores the provided log_reward."""
-        # use MockTrajectory defined at top of file
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -178,9 +153,7 @@ class TestGFNReplayBufferAddFromTrajectory:
         assert abs(entry.log_reward - log_reward) < 1e-5
 
     def test_add_from_trajectory_stores_temperature(self):
-        """add_from_trajectory stores temperature from trajectory."""
-        # use MockTrajectory defined at top of file
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -200,18 +173,14 @@ class TestGFNReplayBufferAddFromTrajectory:
 
 
 class TestGFNReplayBufferPolicyVersion:
-    """Test policy version tracking."""
-
     def test_initial_policy_version(self):
-        """Buffer starts with policy version 0."""
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         assert buffer._policy_version == 0
 
     def test_increment_policy_version(self):
-        """increment_policy_version updates internal counter."""
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         buffer.increment_policy_version()
@@ -220,9 +189,7 @@ class TestGFNReplayBufferPolicyVersion:
         assert buffer._policy_version == 2
 
     def test_entries_get_current_policy_version(self):
-        """Entries are stamped with current policy version."""
-        # use MockTrajectory defined at top of file
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -243,9 +210,7 @@ class TestGFNReplayBufferPolicyVersion:
         assert entries[1].policy_version == 1
 
     def test_staleness_stats(self):
-        """get_staleness_stats returns version statistics."""
-        # use MockTrajectory defined at top of file
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -269,8 +234,7 @@ class TestGFNReplayBufferPolicyVersion:
         assert stats["max_staleness"] == 2  # oldest entry is 2 versions behind
 
     def test_staleness_stats_empty_buffer(self):
-        """get_staleness_stats handles empty buffer."""
-        from synthstats.train.loop.replay import GFNReplayBuffer
+        from synthstats.train.data.replay import GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
         stats = buffer.get_staleness_stats()
@@ -280,11 +244,8 @@ class TestGFNReplayBufferPolicyVersion:
 
 
 class TestGFNReplayBufferPrePopulate:
-    """Test pre_populate for SFT warm-start."""
-
     def test_pre_populate_adds_entries(self):
-        """pre_populate should add entries to buffer."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -307,8 +268,7 @@ class TestGFNReplayBufferPrePopulate:
         assert len(buffer) == 2
 
     def test_pre_populate_deduplication(self):
-        """pre_populate should dedupe when dedupe=True."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -325,8 +285,7 @@ class TestGFNReplayBufferPrePopulate:
         assert len(buffer) == 1
 
     def test_pre_populate_no_deduplication(self):
-        """pre_populate should not dedupe when dedupe=False."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -342,8 +301,7 @@ class TestGFNReplayBufferPrePopulate:
         assert len(buffer) == 2
 
     def test_pre_populate_respects_capacity(self):
-        """pre_populate should respect buffer capacity."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=3)
 
@@ -360,8 +318,7 @@ class TestGFNReplayBufferPrePopulate:
         assert log_rewards == {2.0, 3.0, 4.0}
 
     def test_pre_populate_dedupes_against_existing(self):
-        """pre_populate should not add entries that already exist in buffer."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -379,8 +336,7 @@ class TestGFNReplayBufferPrePopulate:
         assert len(buffer) == 1
 
     def test_pre_populate_returns_count(self):
-        """pre_populate should return count of entries actually added."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10)
 
@@ -396,11 +352,8 @@ class TestGFNReplayBufferPrePopulate:
 
 
 class TestGFNReplayBufferPrioritized:
-    """Test prioritized sampling by log_reward."""
-
     def test_prioritized_alpha_zero_is_uniform(self):
-        """alpha=0 should give uniform sampling."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10, prioritized=True, alpha=0.0)
 
@@ -408,6 +361,5 @@ class TestGFNReplayBufferPrioritized:
         buffer.add(BufferEntry(actions=[{}], log_reward=-100.0, observations=["low"]))
         buffer.add(BufferEntry(actions=[{}], log_reward=0.0, observations=["high"]))
 
-        # with alpha=0, weights should be equal regardless of log_reward
-        # this is tested implicitly - no assertion needed, just verify no crash
+        # alpha=0 means equal weights; just verify no crash
         assert len(buffer) == 2

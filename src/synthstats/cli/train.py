@@ -7,9 +7,6 @@ Usage:
     # Local PyTorch training
     synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b
 
-    # Distributed Ray + SkyRL training
-    synthstats-train runner=skyrl_ray env=dugongs policy=hf_qwen3_4b
-
     # Tinker API backend
     synthstats-train runner=tinker env=dugongs policy=tinker
 
@@ -23,7 +20,10 @@ import logging
 from typing import TYPE_CHECKING
 
 import hydra
+from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
+
+load_dotenv(override=True)  # before Hydra resolves ${oc.env:...}
 
 if TYPE_CHECKING:
     from synthstats.train.runners.base import Runner
@@ -32,14 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_runner(cfg: DictConfig) -> Runner:
-    """Create runner from config.
-
-    Args:
-        cfg: Full Hydra configuration
-
-    Returns:
-        Runner instance based on runner type in config
-    """
+    """Create runner from config."""
     runner_cfg = cfg.get("runner", {})
     runner_type = runner_cfg.get("type", "local")
 
@@ -48,34 +41,25 @@ def get_runner(cfg: DictConfig) -> Runner:
 
         return LocalRunner(cfg)
 
-    elif runner_type == "skyrl_ray":
-        from synthstats.train.runners.skyrl_ray import SkyRLRayRunner
-
-        return SkyRLRayRunner(cfg)
-
     elif runner_type == "tinker":
         from synthstats.train.runners.tinker import TinkerRunner
 
         return TinkerRunner(cfg)
 
+    elif runner_type == "runpod":
+        from synthstats.train.runners.local import LocalRunner
+
+        return LocalRunner(cfg)
+
     else:
         raise ValueError(
-            f"Unknown runner type: {runner_type}. Valid options: local, skyrl_ray, tinker"
+            f"Unknown runner type: {runner_type}. Valid options: local, tinker, runpod"
         )
 
 
 @hydra.main(version_base=None, config_path="../../../configs", config_name="train")
 def main(cfg: DictConfig) -> float | None:
-    """Main training entrypoint.
-
-    Dispatches to the configured runner.
-
-    Args:
-        cfg: Hydra configuration
-
-    Returns:
-        Final loss value for HPO, or None on error
-    """
+    """Training entrypoint; returns final loss for HPO or None on error."""
     logger.info("SynthStats Training")
     logger.info(f"Config:\n{OmegaConf.to_yaml(cfg)}")
 

@@ -20,6 +20,7 @@ from synthstats.core.constants import (
     SUBTB_LAMBDA_DEFAULT,
     TB_MAX_RESIDUAL_DEFAULT,
 )
+from synthstats.policies.parsing import build_prompt, estimate_entropy, parse_action, render_action
 
 logger = logging.getLogger(__name__)
 
@@ -38,23 +39,32 @@ def is_tinker_available() -> bool:
 
 
 def require_tinker() -> Any:
-    """Import and return the tinker module."""
     try:
         import tinker
 
         return tinker
     except ImportError as e:
         raise TinkerOptionalDependencyError(
-            "Tinker SDK is not installed. Install with:\n"
-            "  pip install tinker\n"
-            "Get API access at: https://thinkingmachines.ai/tinker/"
+            "tinker not installed. pip install tinker"
         ) from e
+
+
+def _make_service_client(config: TinkerConfig) -> Any:
+    """Lazy-init a Tinker ServiceClient from config."""
+    tinker = require_tinker()
+    os.environ["TINKER_API_KEY"] = config.get_api_key()
+    base_url = config.get_base_url()
+    kwargs: dict[str, Any] = {}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return tinker.ServiceClient(**kwargs)
 
 
 @dataclass
 class TinkerConfig:
     model: str = "Qwen/Qwen3-4B"
     api_key: str | None = None
+    base_url: str | None = None
     max_tokens: int = 256
     temperature: float = 0.7
     lora_rank: int = 32
@@ -72,6 +82,9 @@ class TinkerConfig:
         if not key:
             raise ValueError("Tinker API key required. Set TINKER_API_KEY env var or pass api_key.")
         return key
+
+    def get_base_url(self) -> str | None:
+        return self.base_url or os.environ.get("TINKER_BASE_URL")
 
 
 PolicyOutput = tuple[dict[str, Any], float, float]
@@ -300,11 +313,7 @@ class TinkerPolicy:
     @property
     def service_client(self) -> Any:
         if self._service_client is None:
-            import os
-
-            tinker = require_tinker()
-            os.environ["TINKER_API_KEY"] = self.config.get_api_key()
-            self._service_client = tinker.ServiceClient()
+            self._service_client = _make_service_client(self.config)
         return self._service_client
 
     @property
@@ -329,7 +338,7 @@ class TinkerPolicy:
 
     def __call__(self, obs: str, temperature: float | None = None) -> PolicyOutput:
         temp = temperature if temperature is not None else self.config.temperature
-        prompt = self._build_prompt(obs)
+        prompt = build_prompt(obs)
 
         _ = self.sampling_client
 
@@ -368,14 +377,14 @@ class TinkerPolicy:
             gen_text = result.text
             logprobs = getattr(result, "logprobs", None)
 
-        action = self._parse_action(gen_text)
+        action = parse_action(gen_text)
 
         if logprobs:
             logp = sum(lp for lp in logprobs if lp is not None)
-            entropy = self._estimate_entropy([lp for lp in logprobs if lp is not None])
+            entropy = estimate_entropy([lp for lp in logprobs if lp is not None])
         else:
             logp = -1.0
-            entropy = 0.1
+            entropy = 0.0
 
         return action, logp, entropy
 
@@ -391,8 +400,8 @@ class TinkerPolicy:
     def score_action(self, obs: str, action: dict[str, Any]) -> tuple[Any, Any]:
         import torch
 
-        prompt = self._build_prompt(obs)
-        action_text = self._render_action(action)
+        prompt = build_prompt(obs)
+        action_text = render_action(action)
         full_text = prompt + action_text
 
         _ = self.sampling_client
@@ -419,10 +428,10 @@ class TinkerPolicy:
         if logprobs:
             action_logprobs = [lp for lp in logprobs[action_start:] if lp is not None]
             logp = sum(action_logprobs) if action_logprobs else -1.0
-            entropy = self._estimate_entropy(action_logprobs)
+            entropy = estimate_entropy(action_logprobs)
         else:
             logp = -1.0
-            entropy = 0.1
+            entropy = 0.0
 
         return (
             torch.tensor(logp, requires_grad=False),
@@ -438,37 +447,6 @@ class TinkerPolicy:
         del temperature
         logp, entropy = self.score_action(obs, action)
         return logp, entropy, None
-
-    def _build_prompt(self, obs: str) -> str:
-        return (
-            "You are an agent that responds to observations.\n"
-            f"Observation: {obs}\n"
-            "Respond with a JSON action: "
-        )
-
-    def _parse_action(self, text: str) -> dict[str, Any]:
-        import json
-
-        text = text.strip()
-        try:
-            if "{" in text:
-                start = text.index("{")
-                end = text.rindex("}") + 1
-                return json.loads(text[start:end])
-        except (json.JSONDecodeError, ValueError):
-            pass
-        return {"type": "answer", "payload": text}
-
-    def _render_action(self, action: dict[str, Any]) -> str:
-        import json
-
-        return json.dumps(action)
-
-    @staticmethod
-    def _estimate_entropy(logprobs: list[float]) -> float:
-        if not logprobs:
-            return 0.0
-        return -sum(logprobs) / len(logprobs)
 
     def _check_tokenizer_compatibility(self, test_text: str = "Hello world") -> bool:
         if self._tokenizer is None:
@@ -564,11 +542,7 @@ class TinkerTrainer:
     @property
     def service_client(self) -> Any:
         if self._service_client is None:
-            import os
-
-            tinker = require_tinker()
-            os.environ["TINKER_API_KEY"] = self.config.get_api_key()
-            self._service_client = tinker.ServiceClient()
+            self._service_client = _make_service_client(self.config)
         return self._service_client
 
     @property
@@ -764,8 +738,6 @@ class TinkerTrainer:
         if self._training_client is not None:
             try:
                 if hasattr(self._training_client, "save_state"):
-                    import os
-
                     state_name = os.path.splitext(os.path.basename(path))[0]
                     checkpoint["tinker_state"] = self._training_client.save_state(state_name)
             except Exception as e:

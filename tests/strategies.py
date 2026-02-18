@@ -1,4 +1,4 @@
-"""Reusable Hypothesis strategies for SynthStats property tests."""
+"""Hypothesis strategies for SynthStats property tests."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import torch
 from hypothesis import strategies as st
 
 from synthstats.core.types import FinalAnswer, Message, Program, Reward, ToolCall, Trajectory
-from synthstats.train.loop.replay import BufferEntry
+from synthstats.train.data.replay import BufferEntry
 
 
 @st.composite
@@ -17,7 +17,7 @@ def st_finite_floats(
     min_value: float = -1e6,
     max_value: float = 1e6,
 ) -> float:
-    """Generate finite floats (no NaN/Inf)."""
+    """Finite floats (no NaN/Inf)."""
     return draw(
         st.floats(
             min_value=min_value,
@@ -34,7 +34,7 @@ def st_log_probs(
     min_length: int = 1,
     max_length: int = 20,
 ) -> torch.Tensor:
-    """Generate valid log probability tensors (negative values)."""
+    """Log probability tensors (negative values)."""
     length = draw(st.integers(min_value=min_length, max_value=max_length))
     values = draw(
         st.lists(
@@ -57,7 +57,7 @@ def st_positive_rewards(
     min_value: float = 1e-6,
     max_value: float = 100.0,
 ) -> float:
-    """Generate positive reward values."""
+    """Positive reward values."""
     return draw(
         st.floats(
             min_value=min_value,
@@ -70,7 +70,7 @@ def st_positive_rewards(
 
 @st.composite
 def st_message(draw: st.DrawFn) -> Message:
-    """Generate a random Message."""
+    """Random Message."""
     role = draw(st.sampled_from(["system", "user", "assistant", "tool"]))
     content = draw(
         st.text(
@@ -88,7 +88,7 @@ def st_messages(
     min_size: int = 1,
     max_size: int = 5,
 ) -> list[Message]:
-    """Generate a list of Messages."""
+    """List of Messages."""
     return draw(st.lists(st_message(), min_size=min_size, max_size=max_size))
 
 
@@ -98,7 +98,7 @@ def st_reward(
     min_total: float = -10.0,
     max_total: float = 10.0,
 ) -> Reward:
-    """Generate a Reward object."""
+    """Reward with bounded total."""
     total = draw(
         st.floats(
             min_value=min_total,
@@ -116,7 +116,7 @@ def st_trajectory(
     min_steps: int = 1,
     max_steps: int = 5,
 ) -> Trajectory:
-    """Generate a valid Trajectory."""
+    """Trajectory with matching token_ids/logprobs/mask shapes."""
     n_steps = draw(st.integers(min_value=min_steps, max_value=max_steps))
 
     messages = draw(st_messages(min_size=1, max_size=n_steps + 1))
@@ -163,7 +163,7 @@ def st_trajectory(
 
 @st.composite
 def st_action_dict(draw: st.DrawFn) -> dict[str, Any]:
-    """Generate a valid action dictionary."""
+    """Action dict with type and payload."""
     action_type = draw(st.sampled_from(["query", "compute_eig", "submit_program", "answer"]))
     payload = draw(
         st.text(
@@ -177,7 +177,7 @@ def st_action_dict(draw: st.DrawFn) -> dict[str, Any]:
 
 @st.composite
 def st_buffer_entry(draw: st.DrawFn) -> BufferEntry:
-    """Generate a valid BufferEntry for GFNReplayBuffer."""
+    """BufferEntry with random actions, observations, and reward."""
     n_actions = draw(st.integers(min_value=1, max_value=5))
     actions = [draw(st_action_dict()) for _ in range(n_actions)]
     observations = [
@@ -222,7 +222,7 @@ def st_buffer_entry(draw: st.DrawFn) -> BufferEntry:
 
 @st.composite
 def st_final_answer(draw: st.DrawFn) -> FinalAnswer:
-    """Generate a FinalAnswer action."""
+    """FinalAnswer with random text."""
     text = draw(
         st.text(
             min_size=0,
@@ -235,7 +235,7 @@ def st_final_answer(draw: st.DrawFn) -> FinalAnswer:
 
 @st.composite
 def st_tool_call(draw: st.DrawFn) -> ToolCall:
-    """Generate a ToolCall action with JSON-serializable input."""
+    """ToolCall with JSON-serializable input."""
     name = draw(st.text(min_size=1, max_size=30, alphabet="abcdefghijklmnopqrstuvwxyz_"))
 
     # generate simple JSON-serializable dict
@@ -261,7 +261,7 @@ def st_tool_call(draw: st.DrawFn) -> ToolCall:
 
 @st.composite
 def st_program(draw: st.DrawFn) -> Program:
-    """Generate a Program action."""
+    """Program with random code and language."""
     code = draw(
         st.text(
             min_size=1,

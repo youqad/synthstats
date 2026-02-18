@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 from collections import deque
@@ -9,9 +10,9 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from synthstats.core.constants import REWARD_FLOOR_DEFAULT
+from synthstats.train.data.collate import extract_reward
+from synthstats.train.data.metrics import summarize_eval_metrics
 from synthstats.train.learners.base import Learner
-from synthstats.train.loop.batching import extract_reward
-from synthstats.train.loop.metrics import summarize_eval_metrics
 
 if TYPE_CHECKING:
     from synthstats.train.checkpointing.base import CheckpointManager
@@ -34,7 +35,7 @@ class Collector(Protocol):
 
 @dataclass
 class LoopConfig:
-    """Configuration for LoopRunner."""
+    """LoopRunner configuration."""
 
     # training
     num_steps: int = 1000
@@ -92,9 +93,8 @@ class LoopRunner:
             self._init_replay_buffer()
 
     def _init_replay_buffer(self) -> None:
-        """Pick GFN or simple replay buffer based on config."""
         if self.config.use_gfn_replay:
-            from synthstats.train.loop.replay import GFNReplayBuffer
+            from synthstats.train.data.replay import GFNReplayBuffer
 
             self._gfn_replay_buffer = GFNReplayBuffer(
                 capacity=self.config.replay_buffer_size,
@@ -102,7 +102,7 @@ class LoopRunner:
                 alpha=self.config.replay_alpha,
             )
         else:
-            from synthstats.train.loop.replay import ReplayBuffer
+            from synthstats.train.data.replay import ReplayBuffer
 
             self._replay_buffer = ReplayBuffer(
                 capacity=self.config.replay_buffer_size,
@@ -112,7 +112,7 @@ class LoopRunner:
 
     @property
     def gfn_replay_buffer(self) -> Any:
-        """GFN replay buffer, or None if not configured."""
+        """GFN replay buffer, or None."""
         return self._gfn_replay_buffer
 
     def _replay_availability(self) -> tuple[bool, bool]:
@@ -192,13 +192,21 @@ class LoopRunner:
 
         # guard: strip EOS when mixing fresh (has EOS) + replay (no EOS)
         if replay_trajectories and fresh_trajectories:
-            has_eos = [t.eos_logprobs is not None for t in trajectories]
+            has_eos = [
+                hasattr(t, "eos_logprobs") and t.eos_logprobs is not None
+                for t in trajectories
+            ]
             if any(has_eos) and not all(has_eos):
                 logger.warning(
                     "stripping eos_logprobs: replay lacks EOS, falling back to vanilla TB"
                 )
                 self._last_eos_downgraded = True
-                return [replace(t, eos_logprobs=None) for t in trajectories]
+                return [
+                    replace(t, eos_logprobs=None)
+                    if dataclasses.is_dataclass(t)
+                    else t
+                    for t in trajectories
+                ]
 
         return trajectories
 
@@ -210,8 +218,7 @@ class LoopRunner:
                 device=self.config.device,
             )
 
-        # default: use build_subtb_batch
-        from synthstats.train.loop.batching import build_subtb_batch
+        from synthstats.train.data.collate import build_subtb_batch
 
         return build_subtb_batch(
             trajectories,
@@ -272,14 +279,7 @@ class LoopRunner:
         return metrics
 
     def run(self, steps: int | None = None) -> list[dict[str, float]]:
-        """Run training for n steps.
-
-        Args:
-            steps: Number of steps (defaults to config.num_steps)
-
-        Returns:
-            List of metrics from each step
-        """
+        """Run training for n steps (defaults to config.num_steps)."""
         n = steps if steps is not None else self.config.num_steps
         metrics_list = []
 
@@ -297,14 +297,7 @@ class LoopRunner:
         return metrics_list
 
     def evaluate(self, episodes: int | None = None) -> dict[str, float]:
-        """Evaluate current policy without training.
-
-        Args:
-            episodes: Number of episodes (defaults to config)
-
-        Returns:
-            Evaluation metrics
-        """
+        """Evaluate current policy without training."""
         import torch
 
         n = episodes or self.config.eval_episodes
@@ -322,5 +315,5 @@ class LoopRunner:
 
     @property
     def metrics_history(self) -> list[dict[str, float]]:
-        """All metrics collected during training."""
+        """All metrics from training."""
         return list(self._all_metrics)

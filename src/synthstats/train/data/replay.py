@@ -9,7 +9,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from synthstats.train.loop.batching import extract_reward
+from synthstats.train.data.collate import extract_reward
 
 if TYPE_CHECKING:
     pass
@@ -164,7 +164,6 @@ class GFNReplayBuffer:
         return results
 
     def _select_entries(self, n: int) -> list[BufferEntry]:
-        """Select n entries with replacement, optionally prioritized by exp(alpha * log_reward)."""
         import math
 
         if not self._prioritized or self._alpha == 0:

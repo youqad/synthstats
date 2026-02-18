@@ -10,16 +10,16 @@ import torch
 
 from synthstats.train.checkpointing.base import (
     CheckpointState,
+    _BaseCheckpointManager,
+    cleanup_old_checkpoints,
     extract_logZ,
-    find_latest_checkpoint,
-    should_save,
 )
 from synthstats.train.utils.seeding import get_rng_states, set_rng_states
 
 logger = logging.getLogger(__name__)
 
 
-class FullStateCheckpoint:
+class FullStateCheckpoint(_BaseCheckpointManager):
     """Full state checkpoint manager for exact reproducibility."""
 
     def __init__(
@@ -38,18 +38,6 @@ class FullStateCheckpoint:
 
     def set_config(self, config: dict[str, Any]) -> None:
         self._config = config
-
-    def maybe_save(
-        self,
-        step: int,
-        learner: Any,
-        policy: Any | None = None,
-        replay_buffer: Any | None = None,
-        metrics_history: list[dict[str, float]] | None = None,
-    ) -> Path | None:
-        if not should_save(step, self.every_steps):
-            return None
-        return self.save(step, learner, policy, replay_buffer, metrics_history)
 
     def save(
         self,
@@ -77,6 +65,9 @@ class FullStateCheckpoint:
             replay_state = replay_buffer.state_dict()
 
         logZ = extract_logZ(learner)
+        learner_state = None
+        if hasattr(learner, "state_dict"):
+            learner_state = learner.state_dict()
 
         state = CheckpointState(
             step_count=step,
@@ -86,6 +77,7 @@ class FullStateCheckpoint:
             rng_states=get_rng_states(),
             replay_buffer=replay_state,
             config=self._config,
+            learner_state=learner_state,
             metrics_history=metrics_history or [],
         )
 
@@ -107,9 +99,6 @@ class FullStateCheckpoint:
         logger.info(f"Loaded checkpoint from {path} (step {state.step_count})")
         return state
 
-    def find_latest(self) -> Path | None:
-        return find_latest_checkpoint(self.save_dir)
-
     def restore(
         self,
         learner: Any,
@@ -126,12 +115,14 @@ class FullStateCheckpoint:
         state = self.load(path)
 
         if hasattr(learner, "load_state_dict"):
-            learner_state = {"objective": {"logZ": state.logZ}}
-            if state.optimizer_state_dict is not None:
-                learner_state["optimizer"] = state.optimizer_state_dict
+            learner_state = state.learner_state
+            if learner_state is None:
+                learner_state = {"objective": {"logZ": state.logZ}}
+                if state.optimizer_state_dict is not None:
+                    learner_state["optimizer"] = state.optimizer_state_dict
             try:
                 learner.load_state_dict(learner_state)
-            except (KeyError, TypeError):
+            except (KeyError, TypeError, ValueError):
                 if hasattr(learner, "objective"):
                     with torch.no_grad():
                         learner.objective.logZ.fill_(state.logZ)
@@ -152,18 +143,4 @@ class FullStateCheckpoint:
     def _cleanup_old(self) -> None:
         if self.keep_last <= 0:
             return
-
-        checkpoints = sorted(
-            self.save_dir.glob("checkpoint_*.pt"),
-            key=lambda p: p.stat().st_mtime,
-        )
-
-        if len(checkpoints) <= self.keep_last:
-            return
-
-        for ckpt in checkpoints[: -self.keep_last]:
-            try:
-                ckpt.unlink()
-                logger.debug(f"Removed old checkpoint: {ckpt}")
-            except OSError as e:
-                logger.warning(f"Failed to remove {ckpt}: {e}")
+        cleanup_old_checkpoints(self.save_dir, self.keep_last)

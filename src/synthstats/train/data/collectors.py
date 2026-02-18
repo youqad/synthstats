@@ -13,12 +13,12 @@ import torch
 from synthstats.core.types import Action, FinalAnswer, Program, ToolCall
 
 PolicyOut3 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor]
-PolicyOut4 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor]
+PolicyOut4 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None]
 PolicyFnLegacy = Callable[[str], PolicyOut3 | PolicyOut4]
 PolicyFnWithTemp = Callable[[str, float], PolicyOut3 | PolicyOut4]
 PolicyFn = PolicyFnLegacy | PolicyFnWithTemp
 ScoreOut2 = tuple[float | torch.Tensor, float | torch.Tensor]
-ScoreOut3 = tuple[float | torch.Tensor, float | torch.Tensor, float | torch.Tensor]
+ScoreOut3 = tuple[float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None]
 ScoreFnLegacy = Callable[[str, dict[str, Any]], ScoreOut2 | ScoreOut3]
 ScoreFnWithTemp = Callable[[str, dict[str, Any], float], ScoreOut2 | ScoreOut3]
 ScoreFn = ScoreFnLegacy | ScoreFnWithTemp
@@ -26,7 +26,7 @@ ScoreFn = ScoreFnLegacy | ScoreFnWithTemp
 
 @dataclass
 class CollectedTrajectory:
-    """Trajectory with log_probs, entropy, and optional ref/EOS data."""
+    """Trajectory with log_probs, entropy, and optional ref/EOS."""
 
     observations: list[str]
     actions: list[dict[str, Any]]
@@ -40,7 +40,6 @@ class CollectedTrajectory:
     completions: list[str] | None = None
 
     def detach(self) -> CollectedTrajectory:
-        """Return copy with detached tensors on CPU."""
         ref_lp = self.ref_log_probs.detach().cpu() if self.ref_log_probs is not None else None
         eos_lp = self.eos_logprobs.detach().cpu() if self.eos_logprobs is not None else None
         return CollectedTrajectory(
@@ -58,7 +57,7 @@ class CollectedTrajectory:
 
 
 class TrajectoryCollector:
-    """Runs episodes and collects trajectories with policy logprobs."""
+    """Runs episodes and collects trajectories with policy log-probs."""
 
     def __init__(
         self,
@@ -182,11 +181,7 @@ class TrajectoryCollector:
         entry: Any,
         temperature: float = 1.0,
     ) -> CollectedTrajectory | None:
-        """Re-score a replay buffer entry with the current policy.
-
-        GFNReplayBuffer stores action sequences without tensors; this
-        re-computes log_probs so training always uses on-policy gradients.
-        """
+        """Re-score a buffer entry with current policy for on-policy gradients."""
         if self.score_fn is None:
             raise ValueError("replay_entry requires score_fn")
 
@@ -231,13 +226,11 @@ class TrajectoryCollector:
 
     @staticmethod
     def _extract_observation(messages: list[dict[str, str]]) -> str:
-        """Serialize messages as JSON."""
         import json
 
         return json.dumps(messages)
 
     def _render_action(self, action: dict[str, Any] | Action | str) -> str:
-        """Render action to the text format the env expects."""
         if isinstance(action, str):
             return action
         if isinstance(action, Action):

@@ -1,8 +1,4 @@
-"""Batch building utilities for training.
-
-Converts lists of trajectories into batched tensors suitable for
-SubTB/TB training.
-"""
+"""Batch building for SubTB/TB training."""
 
 from __future__ import annotations
 
@@ -12,12 +8,12 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 
 from synthstats.core.constants import REWARD_FLOOR_DEFAULT
-from synthstats.train.loop.collectors import CollectedTrajectory
+from synthstats.train.data.collectors import CollectedTrajectory
 from synthstats.train.utils.device import normalize_device
 
 
 def extract_reward(obj: Any) -> float:
-    """Extract scalar reward from a Trajectory, Reward, or float."""
+    """Extract scalar reward from a trajectory, reward, or float."""
     r = getattr(obj, "reward", obj)
     if hasattr(r, "total"):
         return float(r.total)
@@ -29,11 +25,6 @@ def _validate_batch_inputs(
     reward_floor: float,
     device: str | torch.device,
 ) -> torch.device:
-    """Shared validation for batch builders.
-
-    Returns:
-        Normalized torch.device
-    """
     if not trajectories:
         raise ValueError("trajectories must be non-empty")
     if reward_floor <= 0:
@@ -46,11 +37,6 @@ def _compute_log_rewards(
     reward_floor: float,
     device: torch.device,
 ) -> torch.Tensor:
-    """Compute floored log rewards from trajectories.
-
-    Returns:
-        log_reward tensor [B] on device
-    """
     rewards = torch.tensor(
         [max(extract_reward(t), float(reward_floor)) for t in trajectories],
         device=device,
@@ -178,22 +164,7 @@ def build_subtb_batch(
     reward_floor: float = REWARD_FLOOR_DEFAULT,
     device: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
-    """Build padded batch for SubTB/TB training.
-
-    Args:
-        trajectories: List of CollectedTrajectory
-        reward_floor: Minimum reward (avoid log(0))
-        device: Target device
-
-    Returns:
-        Dict with:
-          - log_probs: [B, T_max]
-          - loss_mask: [B, T_max] (bool)
-          - log_reward: [B]
-          - entropy: [B, T_max]
-          - ref_log_probs: optional [B, T_max]
-          - eos_logprobs: optional [B, T_max]
-    """
+    """Build padded batch for SubTB/TB training."""
     device_t = _validate_batch_inputs(trajectories, reward_floor, device)
 
     log_prob_seqs, ent_seqs, ref_log_prob_seqs, eos_logprob_seqs = _collect_subtb_sequences(
@@ -229,16 +200,7 @@ def build_tinker_batch(
     reward_floor: float = REWARD_FLOOR_DEFAULT,
     device: str | torch.device = "cpu",
 ) -> dict[str, Any]:
-    """Build batch for Tinker training (string-based).
-
-    Args:
-        trajectories: List of CollectedTrajectory
-        reward_floor: Minimum reward
-        device: Target device
-
-    Returns:
-        Dict with prompts, completions, log_reward
-    """
+    """Build string-based batch for Tinker training."""
     device_t = _validate_batch_inputs(trajectories, reward_floor, device)
 
     prompts: list[str] = []

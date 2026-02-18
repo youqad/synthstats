@@ -15,7 +15,7 @@ from synthstats.core.constants import LOGZ_LR_DEFAULT, REWARD_FLOOR_DEFAULT
 from synthstats.core.types import Trajectory
 from synthstats.runtime.codecs import ActionCodec
 from synthstats.runtime.rollout import RolloutConfig, rollout_episode
-from synthstats.train.loop.replay import ReplayBuffer
+from synthstats.train.data.replay import ReplayBuffer
 from synthstats.train.objectives.losses import subtb_loss
 
 

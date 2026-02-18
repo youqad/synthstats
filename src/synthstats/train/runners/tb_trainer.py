@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 import torch
 import torch.nn as nn
 
+from synthstats.core.constants import LOGZ_LR_DEFAULT
+
 if TYPE_CHECKING:
     from omegaconf import DictConfig
 
@@ -27,7 +29,7 @@ def _resolve_logz_params(
     if logZ_init is None:
         logZ_init = config.get("logZ_init", 0.0)
     if logZ_lr is None:
-        logZ_lr = config.get("logZ_lr", 1e-2)
+        logZ_lr = config.get("logZ_lr", LOGZ_LR_DEFAULT)
     return float(logZ_init), float(logZ_lr)
 
 
@@ -71,7 +73,7 @@ class TBTrainerMixin:
         self,
         *args: Any,
         logZ_init: float = 0.0,
-        logZ_lr: float = 1e-2,
+        logZ_lr: float = LOGZ_LR_DEFAULT,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -184,7 +186,7 @@ except ImportError:
             self,
             *args: Any,
             logZ_init: float = 0.0,
-            logZ_lr: float = 1e-2,
+            logZ_lr: float = LOGZ_LR_DEFAULT,
             **kwargs: Any,
         ) -> None:
             super().__init__(logZ_init=logZ_init, logZ_lr=logZ_lr)
@@ -287,7 +289,7 @@ except ImportError:
             self,
             *args: Any,
             logZ_init: float = 0.0,
-            logZ_lr: float = 1e-2,
+            logZ_lr: float = LOGZ_LR_DEFAULT,
             **kwargs: Any,
         ) -> None:
             super().__init__(logZ_init=logZ_init, logZ_lr=logZ_lr)

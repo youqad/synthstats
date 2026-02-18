@@ -1,6 +1,6 @@
-"""Integration tests for GFN replay + EOS logprobs.
+"""GFN replay + EOS logprobs integration tests.
 
-Tests the critical path where fresh trajectories (with EOS logprobs) are
+Exercises the path where fresh trajectories (with EOS logprobs) are
 mixed with replay trajectories in the same batch.
 """
 
@@ -11,7 +11,6 @@ import torch
 
 
 class MockScoreFn:
-    """Score function that tracks EOS logprob like HFPolicy."""
 
     def __init__(self, eos_logprob: float = -0.5):
         self._eos_logprob = eos_logprob
@@ -37,7 +36,6 @@ class MockScoreFn:
 
 
 class MockEnv:
-    """Minimal env for testing collectors."""
 
     def __init__(self):
         self.chat_history = []
@@ -59,7 +57,6 @@ class MockEnv:
 
 
 class MockPolicyFn:
-    """Policy that sets _last_eos_logprob_final like HFPolicy."""
 
     def __init__(self):
         self._last_eos_logprob_final = -0.5
@@ -101,10 +98,9 @@ class MockPolicyFn:
 
 
 class TestEOSLogprobsInReplay:
-    """EOS logprobs in replay vs fresh trajectories."""
 
     def test_collect_sets_eos_logprobs(self):
-        from synthstats.train.loop.collectors import TrajectoryCollector
+        from synthstats.train.data.collectors import TrajectoryCollector
 
         env = MockEnv()
         policy_fn = MockPolicyFn()
@@ -118,8 +114,8 @@ class TestEOSLogprobsInReplay:
         assert traj.eos_logprobs.shape[0] == traj.log_probs.shape[0]
 
     def test_replay_entry_sets_eos_logprobs(self):
-        from synthstats.train.loop.collectors import TrajectoryCollector
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.collectors import TrajectoryCollector
+        from synthstats.train.data.replay import BufferEntry
 
         env = MockEnv()
         policy_fn = MockPolicyFn()
@@ -141,8 +137,8 @@ class TestEOSLogprobsInReplay:
         assert traj.eos_logprobs.shape[0] == traj.log_probs.shape[0]
 
     def test_batch_builder_accepts_mixed_eos(self):
-        from synthstats.train.loop.batching import build_subtb_batch
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collate import build_subtb_batch
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         trajs = [
             CollectedTrajectory(
@@ -169,8 +165,8 @@ class TestEOSLogprobsInReplay:
         assert batch["eos_logprobs"].shape == batch["log_probs"].shape
 
     def test_batch_builder_rejects_mixed_eos(self):
-        from synthstats.train.loop.batching import build_subtb_batch
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collate import build_subtb_batch
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         trajs = [
             CollectedTrajectory(
@@ -196,10 +192,9 @@ class TestEOSLogprobsInReplay:
 
 
 class TestPrioritizedSamplingMath:
-    """Prioritized sampling weight computation."""
 
     def test_prioritized_sampling_is_reward_proportional(self):
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=100, prioritized=True, alpha=1.0)
 
@@ -240,7 +235,7 @@ class TestPrioritizedSamplingMath:
             )
 
     def test_alpha_zero_gives_uniform(self):
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=100, prioritized=True, alpha=0.0)
 
@@ -266,11 +261,10 @@ class TestPrioritizedSamplingMath:
 
 
 class TestGFNReplayBufferIntegration:
-    """End-to-end GFN replay buffer with collector."""
 
     def test_full_replay_cycle(self):
-        from synthstats.train.loop.collectors import TrajectoryCollector
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.collectors import TrajectoryCollector
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         env = MockEnv()
         policy_fn = MockPolicyFn()

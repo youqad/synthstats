@@ -15,17 +15,16 @@ def test_warmstart_preserves_think_by_default(tmp_path) -> None:
     }
     jsonl_file.write_text(json.dumps(example) + "\n", encoding="utf-8")
 
-    from synthstats.train.loop.replay import GFNReplayBuffer
+    from synthstats.train.data.replay import GFNReplayBuffer
     from synthstats.train.runners.local import LocalRunner
 
     runner = LocalRunner(OmegaConf.create({}))
     buffer = GFNReplayBuffer(capacity=10)
 
-    class _LoopStub:
-        def __init__(self, buf) -> None:
-            self.gfn_replay_buffer = buf
+    class _CollectorStub:
+        env = None
 
-    runner._warmstart_from_sft(_LoopStub(buffer), {"data_path": str(jsonl_file)})
+    runner._warmstart_from_sft(buffer, _CollectorStub(), {"data_path": str(jsonl_file)})
 
     assert len(buffer) == 1
     entry = next(iter(buffer))
@@ -44,7 +43,7 @@ def test_warmstart_compute_rewards_uses_env_score_program(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    from synthstats.train.loop.replay import GFNReplayBuffer
+    from synthstats.train.data.replay import GFNReplayBuffer
     from synthstats.train.runners.local import LocalRunner
 
     runner = LocalRunner(OmegaConf.create({}))
@@ -62,13 +61,9 @@ def test_warmstart_compute_rewards_uses_env_score_program(tmp_path) -> None:
         def __init__(self, env) -> None:
             self.env = env
 
-    class _LoopStub:
-        def __init__(self, buf, env) -> None:
-            self.gfn_replay_buffer = buf
-            self.collector = _CollectorStub(env)
-
     runner._warmstart_from_sft(
-        _LoopStub(buffer, _EnvStub()),
+        buffer,
+        _CollectorStub(_EnvStub()),
         {
             "data_path": str(jsonl_file),
             "compute_rewards": True,
@@ -93,7 +88,7 @@ def test_warmstart_log_clamp_accepts_omegaconf_listconfig(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    from synthstats.train.loop.replay import GFNReplayBuffer
+    from synthstats.train.data.replay import GFNReplayBuffer
     from synthstats.train.runners.local import LocalRunner
 
     runner = LocalRunner(OmegaConf.create({}))
@@ -111,11 +106,6 @@ def test_warmstart_log_clamp_accepts_omegaconf_listconfig(tmp_path) -> None:
         def __init__(self, env) -> None:
             self.env = env
 
-    class _LoopStub:
-        def __init__(self, buf, env) -> None:
-            self.gfn_replay_buffer = buf
-            self.collector = _CollectorStub(env)
-
     warmstart_cfg = OmegaConf.create(
         {
             "data_path": str(jsonl_file),
@@ -125,7 +115,7 @@ def test_warmstart_log_clamp_accepts_omegaconf_listconfig(tmp_path) -> None:
         }
     )
 
-    runner._warmstart_from_sft(_LoopStub(buffer, _EnvStub()), warmstart_cfg)
+    runner._warmstart_from_sft(buffer, _CollectorStub(_EnvStub()), warmstart_cfg)
 
     entries = list(buffer)
     assert entries[0].log_reward == pytest.approx(1.0)
@@ -140,7 +130,7 @@ def test_warmstart_compute_rewards_requires_env_score_program(tmp_path) -> None:
     }
     jsonl_file.write_text(json.dumps(example) + "\n", encoding="utf-8")
 
-    from synthstats.train.loop.replay import GFNReplayBuffer
+    from synthstats.train.data.replay import GFNReplayBuffer
     from synthstats.train.runners.local import LocalRunner
 
     runner = LocalRunner(OmegaConf.create({}))
@@ -153,14 +143,10 @@ def test_warmstart_compute_rewards_requires_env_score_program(tmp_path) -> None:
         def __init__(self, env) -> None:
             self.env = env
 
-    class _LoopStub:
-        def __init__(self, buf, env) -> None:
-            self.gfn_replay_buffer = buf
-            self.collector = _CollectorStub(env)
-
     with pytest.raises(ValueError, match="score_program"):
         runner._warmstart_from_sft(
-            _LoopStub(buffer, _EnvWithoutScoring()),
+            buffer,
+            _CollectorStub(_EnvWithoutScoring()),
             {
                 "data_path": str(jsonl_file),
                 "compute_rewards": True,

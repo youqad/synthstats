@@ -26,9 +26,13 @@ class SkyRLSubTBConfig:
 
     beta: float = 0.1
     entropy_coef: float = 0.01
-    loss_type: str = "tb"  # "tb" or "modified_subtb"
+    loss_type: str = "tb"  # "tb" | "modified_subtb" | "ab_subtb"
     subtb_lambda: float = SUBTB_LAMBDA_DEFAULT
     tb_max_residual: float = TB_MAX_RESIDUAL_DEFAULT
+    ab_subtb_alpha: float = 0.1
+    use_boundary_critic: bool = False
+    boundary_critic_hidden_dim: int = 32
+    boundary_critic_loss_coef: float = 1.0
     # Optional TB variants
     use_ref_policy: bool = False
     ref_weight: float = 1.0
@@ -70,6 +74,10 @@ class SkyRLSubTBTrainer:
             subtb_lambda=self.config.subtb_lambda,
             tb_max_residual=self.config.tb_max_residual,
             logZ_init=self.config.logZ_init,
+            ab_subtb_alpha=self.config.ab_subtb_alpha,
+            use_boundary_critic=self.config.use_boundary_critic,
+            boundary_critic_hidden_dim=self.config.boundary_critic_hidden_dim,
+            boundary_critic_loss_coef=self.config.boundary_critic_loss_coef,
             use_ref_policy=self.config.use_ref_policy,
             ref_weight=self.config.ref_weight,
             normalize_by_length=self.config.normalize_by_length,
@@ -105,12 +113,25 @@ class SkyRLSubTBTrainer:
         return result
 
     def state_dict(self) -> dict[str, Any]:
-        return {
+        state: dict[str, Any] = {
+            "objective": self._objective.state_dict(),
             "logZ": self.logZ.detach().cpu().item(),
             "config": asdict(self.config),
             "device": self.device,
         }
+        if self.optimizer is not None:
+            state["optimizer"] = self.optimizer.state_dict()
+        return state
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        with torch.no_grad():
-            self.logZ.fill_(state["logZ"])
+        objective_state = state.get("objective")
+        if objective_state is not None:
+            self._objective.load_state_dict(objective_state)
+        elif "logZ" in state:
+            # backward-compatible fallback for older checkpoints
+            with torch.no_grad():
+                self.logZ.fill_(state["logZ"])
+
+        optimizer_state = state.get("optimizer")
+        if self.optimizer is not None and optimizer_state is not None:
+            self.optimizer.load_state_dict(optimizer_state)

@@ -1,4 +1,4 @@
-"""Checkpoint/resume functionality tests."""
+"""Checkpoint/resume tests."""
 
 import random
 from pathlib import Path
@@ -9,10 +9,7 @@ import torch
 
 
 class TestCheckpointState:
-    """Test CheckpointState dataclass and serialization."""
-
     def test_checkpoint_state_creation(self):
-        """Stores all required fields."""
         from synthstats.train.checkpointing.base import CheckpointState
 
         state = CheckpointState(
@@ -23,6 +20,7 @@ class TestCheckpointState:
             rng_states={"torch": torch.get_rng_state()},
             replay_buffer={"entries": []},
             config={"batch_size": 4},
+            learner_state={"objective": {"logZ": 1.5}, "optimizer": {"state": {}}},
             metrics_history=[{"loss": 0.5}],
         )
 
@@ -31,7 +29,6 @@ class TestCheckpointState:
         assert state.config["batch_size"] == 4
 
     def test_checkpoint_state_to_dict(self):
-        """Returns serializable dict."""
         from synthstats.train.checkpointing.base import CheckpointState
 
         state = CheckpointState(
@@ -42,6 +39,7 @@ class TestCheckpointState:
             rng_states={},
             replay_buffer=None,
             config={},
+            learner_state={"objective": {"logZ": 2.0}},
             metrics_history=[],
         )
 
@@ -49,9 +47,10 @@ class TestCheckpointState:
         assert isinstance(d, dict)
         assert d["step_count"] == 50
         assert d["logZ"] == 2.0
+        assert d["learner_state"]["objective"]["logZ"] == 2.0
 
     def test_checkpoint_state_to_dict_is_shallow(self):
-        """to_dict() must not deepcopy tensors (can OOM on large models)."""
+        """to_dict() must not deepcopy tensors (OOM risk on large models)."""
         from synthstats.train.checkpointing.base import CheckpointState
 
         weight = torch.randn(2, 2)
@@ -73,7 +72,6 @@ class TestCheckpointState:
         assert d["model_state_dict"]["weight"] is weight
 
     def test_checkpoint_state_from_dict(self):
-        """Reconstructs state from dict."""
         from synthstats.train.checkpointing.base import CheckpointState
 
         original = CheckpointState(
@@ -84,6 +82,7 @@ class TestCheckpointState:
             rng_states={"random": random.getstate()},
             replay_buffer={"size": 100},
             config={"device": "cpu"},
+            learner_state={"objective": {"logZ": -1.0}, "optimizer": {"lr": 0.001}},
             metrics_history=[{"step": 1}, {"step": 2}],
         )
 
@@ -93,13 +92,11 @@ class TestCheckpointState:
         assert restored.step_count == 75
         assert restored.logZ == -1.0
         assert len(restored.metrics_history) == 2
+        assert restored.learner_state["objective"]["logZ"] == -1.0
 
 
 class TestRngStateFunctions:
-    """Test RNG state capture and restoration."""
-
     def test_get_rng_states(self):
-        """Captures all RNG sources."""
         from synthstats.train.utils.seeding import get_rng_states
 
         states = get_rng_states()
@@ -109,7 +106,6 @@ class TestRngStateFunctions:
         assert "random" in states
 
     def test_set_rng_states_restores_torch(self):
-        """Restores torch RNG."""
         from synthstats.train.utils.seeding import get_rng_states, set_rng_states
 
         torch.manual_seed(42)
@@ -129,7 +125,6 @@ class TestRngStateFunctions:
         assert torch.allclose(after_restore, expected)
 
     def test_set_rng_states_restores_numpy(self):
-        """Restores numpy RNG."""
         from synthstats.train.utils.seeding import get_rng_states, set_rng_states
 
         np.random.seed(42)
@@ -149,7 +144,6 @@ class TestRngStateFunctions:
         assert np.allclose(after_restore, expected)
 
     def test_set_rng_states_restores_random(self):
-        """Restores Python random module."""
         from synthstats.train.utils.seeding import get_rng_states, set_rng_states
 
         random.seed(42)
@@ -170,10 +164,7 @@ class TestRngStateFunctions:
 
 
 class TestSaveLoadCheckpoint:
-    """Test save_checkpoint and load_checkpoint functions."""
-
     def test_save_checkpoint_creates_file(self, tmp_path: Path):
-        """Creates checkpoint file."""
         from synthstats.train.checkpointing.base import CheckpointState, save_checkpoint
 
         path = tmp_path / "test_ckpt.pt"
@@ -193,7 +184,6 @@ class TestSaveLoadCheckpoint:
         assert path.exists()
 
     def test_save_checkpoint_creates_parent_dirs(self, tmp_path: Path):
-        """Creates parent directories."""
         from synthstats.train.checkpointing.base import CheckpointState, save_checkpoint
 
         path = tmp_path / "nested" / "dir" / "checkpoint.pt"
@@ -213,14 +203,12 @@ class TestSaveLoadCheckpoint:
         assert path.exists()
 
     def test_load_checkpoint_raises_for_missing_file(self, tmp_path: Path):
-        """Raises FileNotFoundError for missing file."""
         from synthstats.train.checkpointing.base import load_checkpoint
 
         with pytest.raises(FileNotFoundError):
             load_checkpoint(tmp_path / "nonexistent.pt")
 
     def test_checkpoint_roundtrip(self, tmp_path: Path):
-        """Roundtrip preserves state."""
         from synthstats.train.checkpointing.base import (
             CheckpointState,
             load_checkpoint,
@@ -252,10 +240,7 @@ class TestSaveLoadCheckpoint:
 
 
 class TestCleanupOldCheckpoints:
-    """Test checkpoint cleanup functionality."""
-
     def test_cleanup_keeps_recent_checkpoints(self, tmp_path: Path):
-        """Keeps the most recent N checkpoints."""
         from synthstats.train.checkpointing.base import (
             CheckpointState,
             cleanup_old_checkpoints,
@@ -288,7 +273,6 @@ class TestCleanupOldCheckpoints:
         assert len(remaining) == 2
 
     def test_cleanup_does_nothing_when_under_limit(self, tmp_path: Path):
-        """No-op when count <= keep_last_n."""
         from synthstats.train.checkpointing.base import (
             CheckpointState,
             cleanup_old_checkpoints,
@@ -318,11 +302,8 @@ class TestCleanupOldCheckpoints:
 
 
 class TestBufferEntryStateDict:
-    """Test BufferEntry serialization."""
-
     def test_buffer_entry_to_dict(self):
-        """Returns dict with all fields."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
 
         entry = BufferEntry(
             actions=[{"type": "query"}, {"type": "submit"}],
@@ -342,8 +323,7 @@ class TestBufferEntryStateDict:
         assert "timestamp" in d
 
     def test_buffer_entry_from_dict(self):
-        """Reconstructs entry from dict."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
 
         d = {
             "actions": [{"type": "query"}],
@@ -361,8 +341,7 @@ class TestBufferEntryStateDict:
         assert entry.timestamp == 1234567890.0
 
     def test_buffer_entry_roundtrip(self):
-        """Roundtrip preserves all data."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
 
         original = BufferEntry(
             actions=[{"a": 1}, {"b": 2}],
@@ -383,11 +362,8 @@ class TestBufferEntryStateDict:
 
 
 class TestGFNReplayBufferStateDict:
-    """Test GFNReplayBuffer state_dict/load_state_dict."""
-
     def test_buffer_state_dict(self):
-        """Returns complete state."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer = GFNReplayBuffer(capacity=10, prioritized=True, alpha=0.5)
         buffer.add(BufferEntry(actions=[{}], log_reward=0.0, observations=["obs"]))
@@ -403,8 +379,7 @@ class TestGFNReplayBufferStateDict:
         assert state["alpha"] == 0.5
 
     def test_buffer_load_state_dict(self):
-        """Restores state from dict."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         # create and populate original buffer
         buffer1 = GFNReplayBuffer(capacity=10, prioritized=True, alpha=0.8)
@@ -426,8 +401,7 @@ class TestGFNReplayBufferStateDict:
         assert buffer2._alpha == 0.8
 
     def test_buffer_state_dict_roundtrip(self):
-        """Roundtrip preserves buffer contents."""
-        from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer
+        from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
         buffer1 = GFNReplayBuffer(capacity=5, prioritized=False)
 
@@ -456,10 +430,7 @@ class TestGFNReplayBufferStateDict:
 
 
 class TestSkyRLSubTBTrainerStateDict:
-    """Test SkyRLSubTBTrainer state_dict/load_state_dict."""
-
     def test_trainer_state_dict(self):
-        """Returns logZ and config."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
 
         config = SkyRLSubTBConfig(logZ_init=2.5, beta=0.5)
@@ -473,7 +444,6 @@ class TestSkyRLSubTBTrainerStateDict:
         assert state["config"]["beta"] == 0.5
 
     def test_trainer_load_state_dict(self):
-        """Restores logZ."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBTrainer
 
         trainer = SkyRLSubTBTrainer(device="cpu")
@@ -484,7 +454,6 @@ class TestSkyRLSubTBTrainerStateDict:
         assert trainer.logZ.item() == 5.5
 
     def test_trainer_state_dict_roundtrip(self):
-        """Roundtrip preserves logZ."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
 
         config = SkyRLSubTBConfig(logZ_init=-1.5)
@@ -501,20 +470,43 @@ class TestSkyRLSubTBTrainerStateDict:
 
         assert abs(trainer2.logZ.item() - 3.14) < 1e-5
 
+    def test_trainer_state_dict_roundtrip_preserves_boundary_critic(self):
+        from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
+
+        config = SkyRLSubTBConfig(
+            logZ_init=0.0,
+            loss_type="ab_subtb",
+            use_boundary_critic=True,
+            boundary_critic_hidden_dim=8,
+        )
+        trainer1 = SkyRLSubTBTrainer(config=config, device="cpu")
+        assert trainer1._objective.boundary_critic is not None
+
+        with torch.no_grad():
+            first_param = next(trainer1._objective.boundary_critic.parameters())
+            first_param.fill_(0.1234)
+            trainer1.logZ.fill_(1.25)
+
+        state = trainer1.state_dict()
+
+        trainer2 = SkyRLSubTBTrainer(config=config, device="cpu")
+        assert trainer2._objective.boundary_critic is not None
+        trainer2.load_state_dict(state)
+
+        loaded_first_param = next(trainer2._objective.boundary_critic.parameters())
+        assert torch.allclose(loaded_first_param, torch.full_like(loaded_first_param, 0.1234))
+        assert abs(trainer2.logZ.item() - 1.25) < 1e-5
+
 
 class TestTrainingLoopCheckpointing:
-    """Test TrainingLoop checkpoint integration."""
-
     @pytest.fixture
     def mock_policy(self):
-        """Create mock policy for testing."""
         from synthstats.policies.hf_policy import MockHFPolicy
 
         return MockHFPolicy(device="cpu")
 
     @pytest.fixture
     def mock_trainer(self):
-        """Create trainer for testing."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBTrainer
 
         trainer = SkyRLSubTBTrainer(device="cpu")
@@ -523,7 +515,6 @@ class TestTrainingLoopCheckpointing:
 
     @pytest.fixture
     def mock_env(self):
-        """Create mock environment for testing."""
         from unittest.mock import MagicMock
 
         from synthstats.envs.skyrl_text_env import SynthStatsTextEnv
@@ -536,7 +527,6 @@ class TestTrainingLoopCheckpointing:
         return env
 
     def test_training_loop_save_checkpoint(self, tmp_path, mock_policy, mock_trainer, mock_env):
-        """Creates checkpoint file."""
         from synthstats.train.runners.skyrl_loop import TrainingConfig, TrainingLoop
 
         config = TrainingConfig(batch_size=2, device="cpu")
@@ -550,7 +540,6 @@ class TestTrainingLoopCheckpointing:
         assert path.exists()
 
     def test_training_loop_load_checkpoint(self, tmp_path, mock_policy, mock_trainer, mock_env):
-        """Restores state from checkpoint."""
         from synthstats.train.runners.skyrl_loop import TrainingConfig, TrainingLoop
 
         config = TrainingConfig(batch_size=2, device="cpu")
@@ -583,7 +572,6 @@ class TestTrainingLoopCheckpointing:
         assert abs(mock_trainer.logZ.item() - 7.5) < 1e-5
 
     def test_training_loop_from_checkpoint(self, tmp_path, mock_policy, mock_trainer, mock_env):
-        """Creates configured loop from checkpoint."""
         from synthstats.train.runners.skyrl_loop import TrainingConfig, TrainingLoop
 
         config = TrainingConfig(batch_size=4, learning_rate=1e-3, device="cpu")
@@ -608,8 +596,7 @@ class TestTrainingLoopCheckpointing:
     def test_training_loop_checkpoint_with_gfn_buffer(
         self, tmp_path, mock_policy, mock_trainer, mock_env
     ):
-        """Includes GFN replay buffer."""
-        from synthstats.train.loop.replay import BufferEntry
+        from synthstats.train.data.replay import BufferEntry
         from synthstats.train.runners.skyrl_loop import TrainingConfig, TrainingLoop
 
         config = TrainingConfig(
@@ -640,7 +627,6 @@ class TestTrainingLoopCheckpointing:
         assert len(loop2._gfn_replay_buffer) == 1
 
     def test_training_loop_requires_setup_before_save(self):
-        """Raises RuntimeError if setup() not called."""
         from synthstats.train.runners.skyrl_loop import TrainingLoop
 
         loop = TrainingLoop()
@@ -649,7 +635,6 @@ class TestTrainingLoopCheckpointing:
             loop.save_checkpoint("/tmp/test.pt")
 
     def test_training_loop_requires_setup_before_load(self, tmp_path):
-        """Requires setup() first."""
         from synthstats.train.runners.skyrl_loop import TrainingLoop
 
         loop = TrainingLoop()

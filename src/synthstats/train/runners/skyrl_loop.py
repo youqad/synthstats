@@ -27,10 +27,10 @@ from synthstats.train.checkpointing.base import (
 from synthstats.train.checkpointing.base import (
     save_checkpoint as _save_checkpoint,
 )
-from synthstats.train.loop.batching import build_subtb_batch, build_tinker_batch
-from synthstats.train.loop.collectors import CollectedTrajectory, TrajectoryCollector
-from synthstats.train.loop.metrics import summarize_eval_metrics
-from synthstats.train.loop.replay import GFNReplayBuffer, ReplayBuffer
+from synthstats.train.data.collate import build_subtb_batch, build_tinker_batch
+from synthstats.train.data.collectors import CollectedTrajectory, TrajectoryCollector
+from synthstats.train.data.metrics import summarize_eval_metrics
+from synthstats.train.data.replay import GFNReplayBuffer, ReplayBuffer
 from synthstats.train.runners.skyrl_subtb import SkyRLSubTBTrainer
 from synthstats.train.utils.seeding import get_rng_states, set_rng_states
 
@@ -447,7 +447,6 @@ class TrainingLoop:
             log_callback=log_callback,
         )
 
-        # restore state without re-loading file
         loop._restore_from_state(state)
 
         return loop

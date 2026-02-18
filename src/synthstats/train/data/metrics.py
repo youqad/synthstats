@@ -1,4 +1,4 @@
-"""Shared metric utilities for training loops."""
+"""Shared metric utilities for training."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ def summarize_eval_metrics(
     episodes: int,
     logZ: float,
 ) -> dict[str, float]:
-    """Compute standard eval metrics from per-episode rewards."""
+    """Compute eval metrics from per-episode rewards."""
     if not rewards:
         return {
             "eval_avg_reward": 0.0,

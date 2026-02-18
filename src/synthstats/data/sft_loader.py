@@ -123,14 +123,14 @@ def sft_to_buffer_entry(
     log_reward: float,
     strip_thinking: bool = False,
 ) -> Any:
-    """Convert SFT example to a BufferEntry for the replay buffer."""
+    """Convert an SFT example to a BufferEntry."""
     if log_reward is None:
         raise TypeError(
             "log_reward must be a float, got None. "
             "Compute real ELPD reward using compute_sft_rewards() before calling."
         )
 
-    from synthstats.train.loop.replay import BufferEntry
+    from synthstats.train.data.replay import BufferEntry
 
     action_payload = example.program if strip_thinking else example.completion
 
@@ -153,7 +153,7 @@ def compute_sft_rewards(
     log_clamp: tuple[float, float] = (-50.0, 50.0),
     show_progress: bool = True,
 ) -> list[float]:
-    """Compute log rewards for SFT examples, clamped to log_clamp range."""
+    """Compute clamped log rewards for SFT examples."""
     import math
 
     rewards = []

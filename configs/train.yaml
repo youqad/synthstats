@@ -5,7 +5,6 @@
 #
 # Usage:
 #   synthstats-train runner=local env=dugongs policy=hf_qwen3_0_6b
-#   synthstats-train runner=skyrl_ray env=dugongs policy=hf_qwen3_4b
 #   synthstats-train runner=tinker env=dugongs policy=tinker
 
 defaults:

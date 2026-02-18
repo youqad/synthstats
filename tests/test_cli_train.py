@@ -1,4 +1,4 @@
-"""Tests for the training CLI."""
+"""Training CLI tests."""
 
 from pathlib import Path
 
@@ -11,7 +11,6 @@ from synthstats.train.runners.base import RunResult
 
 
 class TestGetRunner:
-    """Tests for the runner factory function."""
 
     def test_local_runner(self):
         cfg = OmegaConf.create(
@@ -25,19 +24,6 @@ class TestGetRunner:
         from synthstats.train.runners.local import LocalRunner
 
         assert isinstance(runner, LocalRunner)
-
-    def test_skyrl_ray_runner(self):
-        cfg = OmegaConf.create(
-            {
-                "runner": {"type": "skyrl_ray"},
-                "seed": 42,
-                "device": "cpu",
-            }
-        )
-        runner = get_runner(cfg)
-        from synthstats.train.runners.skyrl_ray import SkyRLRayRunner
-
-        assert isinstance(runner, SkyRLRayRunner)
 
     def test_tinker_runner(self):
         cfg = OmegaConf.create(
@@ -76,10 +62,8 @@ class TestGetRunner:
 
 
 class TestRunnerIntegration:
-    """Integration tests for runners."""
 
     def test_local_runner_initializes(self):
-        """LocalRunner should initialize with minimal config."""
         cfg = OmegaConf.create(
             {
                 "runner": {
@@ -103,7 +87,6 @@ class TestRunnerIntegration:
 
 
 class TestTrainUtils:
-    """Tests for training utilities."""
 
     def test_resolve_device_cpu(self):
         from synthstats.train.utils.device import resolve_device
@@ -127,14 +110,12 @@ class TestTrainUtils:
 
 
 class TestConfigFiles:
-    """Tests for config file loading."""
 
     @pytest.fixture
     def config_dir(self):
         return Path(__file__).parent.parent / "configs"
 
     def test_train_config_exists(self, config_dir):
-        """Verify train.yaml config exists."""
         train_config = config_dir / "train.yaml"
         if not train_config.exists():
             pytest.skip("train.yaml not found")
@@ -142,16 +123,13 @@ class TestConfigFiles:
         assert "defaults" in cfg
 
     def test_runner_configs_exist(self, config_dir):
-        """Verify runner configs exist."""
         runner_dir = config_dir / "runner"
         if not runner_dir.exists():
             pytest.skip("runner configs not found")
         assert (runner_dir / "local.yaml").exists()
-        assert (runner_dir / "skyrl_ray.yaml").exists()
         assert (runner_dir / "tinker.yaml").exists()
 
     def test_local_runner_config(self, config_dir):
-        """Test local runner config loads."""
         local_config = config_dir / "runner" / "local.yaml"
         if not local_config.exists():
             pytest.skip("local.yaml not found")
@@ -161,7 +139,6 @@ class TestConfigFiles:
 
 
 class TestRunResult:
-    """Tests for RunResult dataclass."""
 
     def test_run_result_defaults(self):
         result = RunResult()
@@ -184,14 +161,12 @@ class TestRunResult:
 
 
 class TestHydraConfigIntegration:
-    """Integration tests using actual Hydra config files."""
 
     @pytest.fixture
     def config_dir(self):
         return Path(__file__).parent.parent / "configs"
 
     def test_old_config_loads(self, config_dir):
-        """Verify old Hydra config still loads (backward compat)."""
         if not config_dir.exists():
             pytest.skip("Config directory not found")
 
@@ -204,7 +179,6 @@ class TestHydraConfigIntegration:
             assert "trainer" in cfg or "runner" in cfg
 
     def test_model_override(self, config_dir):
-        """Test model config override still works."""
         if not (config_dir / "model").exists():
             pytest.skip("Model configs not found")
 

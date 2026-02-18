@@ -1,6 +1,6 @@
-"""Tests for Sub-Trajectory Balance (SubTB) loss from gfn-lm-tuning.
+"""SubTB loss tests.
 
-SubTB computes flow matching losses over ALL sub-trajectory lengths,
+SubTB computes flow matching losses over all sub-trajectory lengths,
 providing denser gradient signal than vanilla TB.
 """
 
@@ -15,10 +15,7 @@ from synthstats.train.objectives.trajectory_balance import (
 
 
 class TestSubTBBasics:
-    """Basic SubTB loss computation tests."""
-
     def test_computes_loss_with_eos_logprobs(self):
-        """SubTB should compute loss when eos_logprobs is provided."""
         log_probs = torch.randn(2, 5)
         advantages = torch.randn(2, 5)
         eos_logprobs = torch.randn(2, 5)
@@ -42,7 +39,6 @@ class TestSubTBBasics:
         assert clip_ratio == 0.0
 
     def test_falls_back_to_vanilla_tb_without_eos_logprobs(self):
-        """SubTB should fall back to vanilla TB if no eos_logprobs."""
         log_probs = torch.randn(2, 5)
         advantages = torch.randn(2, 5)
         config = {"logZ": 0.0, "subtb_lambda": 0.9}
@@ -56,7 +52,6 @@ class TestSubTBBasics:
         assert torch.isclose(loss, tb_loss)
 
     def test_handles_single_token_trajectory(self):
-        """Single-token trajectories should fall back to vanilla TB."""
         log_probs = torch.randn(2, 1)  # single token
         advantages = torch.randn(2, 1)
         eos_logprobs = torch.randn(2, 1)
@@ -78,10 +73,7 @@ class TestSubTBBasics:
 
 
 class TestDeltaCumsumPattern:
-    """Test the delta_cumsum computation pattern."""
-
     def test_internal_delta_computation(self):
-        """Verify internal delta = log_pf - eos_logprob + eos_logprob_next."""
         log_probs = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
         eos_logprobs = torch.tensor([[-1.0, -2.0, -3.0, -4.0]])
 
@@ -98,7 +90,6 @@ class TestDeltaCumsumPattern:
         assert torch.allclose(internal_delta, expected_internal_delta)
 
     def test_final_delta_includes_reward(self):
-        """Verify final delta = log_pf - eos_logprob + log_reward (anchors flow)."""
         log_probs = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
         eos_logprobs = torch.tensor([[-1.0, -2.0, -3.0, -4.0]])
         log_rewards = torch.tensor([[10.0, 10.0, 10.0, 10.0]])  # broadcast reward
@@ -112,7 +103,6 @@ class TestDeltaCumsumPattern:
         assert torch.allclose(final_delta, expected_final_delta)
 
     def test_full_delta_includes_internal_and_reward(self):
-        """Verify full delta = [internal_deltas..., final_delta_with_reward]."""
         log_probs = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
         eos_logprobs = torch.tensor([[-1.0, -2.0, -3.0, -4.0]])
         log_rewards = torch.tensor([[10.0, 10.0, 10.0, 10.0]])
@@ -128,7 +118,6 @@ class TestDeltaCumsumPattern:
         assert torch.allclose(full_delta, expected_full_delta)
 
     def test_cumsum_gives_subtraj_sums(self):
-        """Cumsum trick: cumsum[t+len] - cumsum[t] = sum(delta[t:t+len])."""
         delta = torch.tensor([[1.0, 2.0, 3.0]])  # [B=1, T-1=3]
 
         # prepend zero and cumsum
@@ -150,10 +139,7 @@ class TestDeltaCumsumPattern:
 
 
 class TestLambdaWeighting:
-    """Test the lambda^(len-1) weighting."""
-
     def test_higher_lambda_weights_longer_subtraj_more(self):
-        """Higher lambda should increase weight on longer sub-trajectories."""
         log_probs = torch.randn(2, 6)
         advantages = torch.randn(2, 6)
         eos_logprobs = torch.randn(2, 6)
@@ -181,7 +167,6 @@ class TestLambdaWeighting:
         assert not torch.isclose(loss_high, loss_low, atol=1e-6)
 
     def test_lambda_zero_weights_only_length_one(self):
-        """Lambda=0 should only consider length-1 sub-trajectories."""
         log_probs = torch.randn(2, 5)
         advantages = torch.randn(2, 5)
         eos_logprobs = torch.randn(2, 5)
@@ -204,10 +189,7 @@ class TestLambdaWeighting:
 
 
 class TestEOSLogprobsEffect:
-    """Test that EOS logprobs affect the loss correctly."""
-
     def test_different_eos_logprobs_give_different_loss(self):
-        """Different EOS logprobs should give different losses."""
         log_probs = torch.randn(2, 5)
         advantages = torch.randn(2, 5)
 
@@ -236,10 +218,7 @@ class TestEOSLogprobsEffect:
 
 
 class TestGradientFlow:
-    """Test gradient flow through SubTB loss."""
-
     def test_gradients_flow_to_log_probs(self):
-        """Gradients should flow through SubTB loss to log_probs."""
         log_probs = torch.randn(2, 5, requires_grad=True)
         advantages = torch.randn(2, 5)
         eos_logprobs = torch.randn(2, 5)
@@ -263,10 +242,7 @@ class TestGradientFlow:
 
 
 class TestMasking:
-    """Test loss mask handling."""
-
     def test_respects_loss_mask(self):
-        """Masked positions should not contribute to loss."""
         log_probs = torch.tensor(
             [
                 [-1.0, -1.0, -999.0, -999.0],  # last two should be ignored
@@ -294,7 +270,7 @@ class TestMasking:
         assert loss.item() < 1000  # reasonable value
 
     def test_variable_length_reward_anchoring(self):
-        """Reward anchors at each sample's last valid position, not global T-1."""
+        """reward anchors at each sample's last valid position, not global T-1."""
         # batch with two samples of different valid lengths
         # sample 0: 2 valid tokens (mask=[1,1,0,0])
         # sample 1: 4 valid tokens (mask=[1,1,1,1])
@@ -359,7 +335,6 @@ class TestMasking:
         assert loss.item() == expected_loss
 
     def test_non_contiguous_mask_excludes_spanning_subtrajectories(self):
-        """Sub-trajectories spanning a masked gap are excluded via mask cumsum."""
         # batch with non-contiguous mask (gap at position 1)
         log_probs = torch.tensor(
             [
@@ -421,7 +396,6 @@ class TestMasking:
         assert loss.item() == expected_loss
 
     def test_t1_subtb_single_subtrajectory(self):
-        """T=1 has a single reward-anchored sub-trajectory: delta = log_pf - eos + log_R."""
         log_probs = torch.tensor([[2.0]])
         eos_logprobs = torch.tensor([[-3.0]])
         log_rewards = torch.tensor([[5.0]])
@@ -448,7 +422,6 @@ class TestMasking:
         assert loss.item() == pytest.approx(100.0, rel=1e-5)
 
     def test_lambda_one_weights_all_lengths_equally(self):
-        """Lambda=1.0 gives weight 1.0^(len-1) = 1.0 for all sub-trajectory lengths."""
         log_probs = torch.randn(1, 4)
         eos_logprobs = torch.randn(1, 4)
         log_rewards = torch.randn(1, 4)
@@ -477,7 +450,6 @@ class TestMasking:
         # length 3: 2 positions, length 4: 1 position)
 
     def test_nan_at_masked_position_doesnt_propagate(self):
-        """NaN at masked positions must be zeroed before cumsum to prevent propagation."""
         log_probs = torch.tensor(
             [
                 [1.0, float("nan"), 2.0, 3.0],  # NaN at position 1 (masked)
@@ -517,7 +489,6 @@ class TestMasking:
         assert torch.isfinite(loss), "Loss is not finite!"
 
     def test_fully_masked_sample_excluded(self):
-        """Samples with all-zero mask should be excluded from loss."""
         log_probs = torch.tensor(
             [
                 [1.0, 2.0, 3.0],  # sample 0: has valid positions
@@ -564,7 +535,7 @@ class TestMasking:
         # if sample 1 was included, the 999.0 values would cause extreme loss
 
     def test_bfloat16_long_sequence_precision(self):
-        """bfloat16 loses integer precision beyond 256; tolerance-based mask comparison handles this."""
+        """bfloat16 loses integer precision beyond 256; tolerance-based mask handles this."""
         T = 300  # beyond bfloat16 exact integer range (256)
         log_probs = torch.randn(2, T, dtype=torch.bfloat16)
         advantages = torch.randn(2, T, dtype=torch.bfloat16)
@@ -590,10 +561,7 @@ class TestMasking:
 
 
 class TestSubTBTrainerMixin:
-    """Test SubTBTrainerMixin functionality."""
-
     def test_inject_subtb_data(self):
-        """SubTBTrainerMixin should inject both logZ and eos_logprobs."""
         from omegaconf import DictConfig
 
         from synthstats.train.runners.tb_trainer import SubTBTrainerMixin
@@ -615,11 +583,9 @@ class TestSubTBTrainerMixin:
 
 
 class TestSkyRLRegistration:
-    """Test SkyRL registry integration."""
 
     @pytest.mark.skipif(not SKYRL_REGISTERED, reason="SkyRL not available")
     def test_modified_subtb_registered(self):
-        """modified_subtb should be registered as policy loss."""
         from skyrl_train.utils.ppo_utils import PolicyLossRegistry
 
         available = PolicyLossRegistry.list_available()
@@ -627,7 +593,6 @@ class TestSkyRLRegistration:
 
     @pytest.mark.skipif(not SKYRL_REGISTERED, reason="SkyRL not available")
     def test_can_retrieve_modified_subtb(self):
-        """Should be able to get modified_subtb from registry."""
         from skyrl_train.utils.ppo_utils import PolicyLossRegistry
 
         loss_fn = PolicyLossRegistry.get("modified_subtb")
@@ -642,10 +607,7 @@ class TestSkyRLRegistration:
 
 
 class TestEndToEndSubTB:
-    """End-to-end tests for SubTB training flow."""
-
     def test_full_subtb_pipeline(self):
-        """Test complete SubTB training pipeline."""
         from omegaconf import DictConfig
 
         from synthstats.train.runners.tb_trainer import SubTBTrainerMixin
@@ -676,7 +638,6 @@ class TestEndToEndSubTB:
         assert clip == 0.0
 
     def test_eos_logprobs_in_generation(self):
-        """Test that MockHFPolicy includes eos_logprobs in Generation."""
         from synthstats.core.policy import GenConfig
         from synthstats.policies.hf_policy import MockHFPolicy
 
@@ -690,10 +651,7 @@ class TestEndToEndSubTB:
 
 
 class TestEOSLogprobPipeline:
-    """Test the full EOS logprob pipeline from policy to trainer."""
-
     def test_mock_policy_stores_last_eos_logprob_final(self):
-        """MockHFPolicy should store _last_eos_logprob_final after __call__."""
         from synthstats.policies.hf_policy import MockHFPolicy
 
         policy = MockHFPolicy()
@@ -707,8 +665,7 @@ class TestEOSLogprobPipeline:
         assert isinstance(policy._last_eos_logprob_final, float)
 
     def test_collected_trajectory_has_eos_logprobs_field(self):
-        """CollectedTrajectory should have eos_logprobs field."""
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         traj = CollectedTrajectory(
             observations=["obs1"],
@@ -724,8 +681,7 @@ class TestEOSLogprobPipeline:
         assert traj.eos_logprobs.shape == torch.Size([1])
 
     def test_collected_trajectory_detach_preserves_eos_logprobs(self):
-        """CollectedTrajectory.detach() should preserve eos_logprobs."""
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         traj = CollectedTrajectory(
             observations=["obs1"],
@@ -743,9 +699,8 @@ class TestEOSLogprobPipeline:
         assert detached.eos_logprobs.device == torch.device("cpu")
 
     def test_build_subtb_batch_includes_eos_logprobs(self):
-        """build_subtb_batch should include eos_logprobs when available."""
-        from synthstats.train.loop.batching import build_subtb_batch
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collate import build_subtb_batch
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         trajs = [
             CollectedTrajectory(
@@ -774,9 +729,8 @@ class TestEOSLogprobPipeline:
         assert batch["eos_logprobs"].shape == torch.Size([2, 3])
 
     def test_build_subtb_batch_without_eos_logprobs(self):
-        """build_subtb_batch should work without eos_logprobs."""
-        from synthstats.train.loop.batching import build_subtb_batch
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collate import build_subtb_batch
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         trajs = [
             CollectedTrajectory(
@@ -795,9 +749,8 @@ class TestEOSLogprobPipeline:
         assert "eos_logprobs" not in batch
 
     def test_build_subtb_batch_mixed_eos_logprobs_raises(self):
-        """build_subtb_batch should raise on mixed eos_logprobs."""
-        from synthstats.train.loop.batching import build_subtb_batch
-        from synthstats.train.loop.collectors import CollectedTrajectory
+        from synthstats.train.data.collate import build_subtb_batch
+        from synthstats.train.data.collectors import CollectedTrajectory
 
         trajs = [
             CollectedTrajectory(
@@ -822,7 +775,6 @@ class TestEOSLogprobPipeline:
             build_subtb_batch(trajs, reward_floor=1e-4)
 
     def test_skyrl_trainer_uses_vanilla_tb_by_default(self):
-        """SkyRLSubTBTrainer should use vanilla TB by default."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
 
         config = SkyRLSubTBConfig()  # default loss_type="tb"
@@ -842,7 +794,6 @@ class TestEOSLogprobPipeline:
         assert not torch.isnan(torch.tensor(result["loss"]))
 
     def test_skyrl_trainer_uses_modified_subtb_with_eos_logprobs(self):
-        """SkyRLSubTBTrainer should use modified SubTB when configured."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
 
         config = SkyRLSubTBConfig(loss_type="modified_subtb")
@@ -863,7 +814,6 @@ class TestEOSLogprobPipeline:
         assert not torch.isnan(torch.tensor(result["loss"]))
 
     def test_skyrl_trainer_falls_back_to_vanilla_without_eos(self):
-        """SkyRLSubTBTrainer should fall back to vanilla TB without EOS logprobs."""
         from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
 
         config = SkyRLSubTBConfig(loss_type="modified_subtb")  # request SubTB

@@ -1,17 +1,13 @@
-"""Property-based tests for Replay Buffers using Hypothesis.
-
-Tests invariants for both ReplayBuffer and GFNReplayBuffer.
-"""
+"""Property-based replay buffer tests (Hypothesis)."""
 
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from synthstats.core.types import Message, Reward, Trajectory
-from synthstats.train.loop.replay import BufferEntry, GFNReplayBuffer, ReplayBuffer
+from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer, ReplayBuffer
 
 
 def make_trajectory(reward_total: float = 0.5) -> Trajectory:
-    """Helper to create a minimal trajectory for testing."""
     return Trajectory(
         messages=[Message(role="user", content="test")],
         token_ids=[[1, 2, 3]],
@@ -22,7 +18,6 @@ def make_trajectory(reward_total: float = 0.5) -> Trajectory:
 
 
 def make_buffer_entry(log_reward: float = 0.0, policy_version: int = 0) -> BufferEntry:
-    """Helper to create a minimal BufferEntry for testing."""
     return BufferEntry(
         actions=[{"type": "answer", "payload": "42"}],
         log_reward=log_reward,
@@ -33,7 +28,6 @@ def make_buffer_entry(log_reward: float = 0.0, policy_version: int = 0) -> Buffe
 
 
 class TestReplayBufferProperties:
-    """Property-based tests for ReplayBuffer."""
 
     @given(
         capacity=st.integers(min_value=1, max_value=100),
@@ -113,7 +107,6 @@ class TestReplayBufferProperties:
 
 
 class TestGFNReplayBufferProperties:
-    """Property-based tests for GFNReplayBuffer."""
 
     @given(
         capacity=st.integers(min_value=1, max_value=100),

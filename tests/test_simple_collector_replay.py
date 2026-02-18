@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from synthstats.train.loop.collectors import TrajectoryCollector
-from synthstats.train.loop.replay import BufferEntry
+from synthstats.train.data.collectors import TrajectoryCollector
+from synthstats.train.data.replay import BufferEntry
 
 
 class DummyEnv:

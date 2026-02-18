@@ -1,8 +1,10 @@
 # Tinker API policy config
+# For self-hosted SkyRL: set TINKER_BASE_URL=http://host:8000
 _target_: synthstats.integrations.tinker.adapter.TinkerPolicy
 config:
   _target_: synthstats.integrations.tinker.adapter.TinkerConfig
   api_key: ${oc.env:TINKER_API_KEY,null}
+  base_url: ${oc.env:TINKER_BASE_URL,null}
   model: Qwen/Qwen3-4B
   max_tokens: 256
   temperature: 0.7
