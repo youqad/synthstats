@@ -14,7 +14,7 @@ from typing import Any
 
 import torch
 
-from synthstats.policies.parsing import build_prompt, estimate_entropy, parse_action, render_action
+from synthstats.policies.parsing import estimate_entropy, parse_action, render_action
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,12 @@ class RunPodPolicy:
     _tokenizer: Any = field(default=None, init=False, repr=False)
     _tokenizer_loaded: bool = field(default=False, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        logger.debug(
+            "RunPodPolicy: score_action_with_eos returns eos=None; "
+            "replay mixed with local HF policy triggers eos_downgraded fallback."
+        )
+
     @property
     def client(self) -> Any:
         if self._client is None:
@@ -96,7 +102,7 @@ class RunPodPolicy:
                 from transformers import AutoTokenizer
 
                 self._tokenizer = AutoTokenizer.from_pretrained(self.config.model)
-            except Exception as e:
+            except (OSError, ValueError, ImportError) as e:
                 logger.warning("Could not load tokenizer for %s: %s", self.config.model, e)
         return self._tokenizer
 
@@ -143,30 +149,41 @@ class RunPodPolicy:
     def score_action(
         self, obs: str, action: dict[str, Any]
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Re-score an existing action via /completions echo mode."""
-        prompt = build_prompt(obs)
-        action_text = render_action(action)
-        full_text = prompt + action_text
+        """Re-score an action using chat completions with echoed prompt tokens.
 
-        response = self.client.completions.create(
-            model=self.config.model,
-            prompt=full_text,
-            max_tokens=0,
-            echo=True,
-            logprobs=1,
-        )
+        This keeps replay scoring aligned with `sample_with_eos`, which also uses
+        chat messages and the chat completions endpoint.
+        """
+        messages = self._build_chat_messages(obs)
+        action_text = render_action(action)
+        score_messages = messages + [{"role": "assistant", "content": action_text}]
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.config.model,
+                messages=score_messages,
+                max_tokens=0,
+                temperature=0.0,
+                logprobs=True,
+                top_logprobs=self.config.top_logprobs,
+                extra_body={"echo": True},
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "RunPod endpoint does not support chat.completions with "
+                "logprobs + echo=True for replay scoring."
+            ) from exc
 
         choice = response.choices[0]
-        all_logprobs = []
-        all_tokens = []
-        if choice.logprobs and choice.logprobs.token_logprobs:
-            all_logprobs = choice.logprobs.token_logprobs
-            all_tokens = choice.logprobs.tokens or []
+        all_logprobs: list[float] = []
+        if choice.logprobs and choice.logprobs.content:
+            for token_info in choice.logprobs.content:
+                lp = getattr(token_info, "logprob", None)
+                if lp is not None:
+                    all_logprobs.append(lp)
 
-        action_start = self._find_action_boundary(prompt, len(all_tokens))
-        action_lps = [
-            lp for lp in all_logprobs[action_start:] if lp is not None
-        ]
+        action_token_count = self._estimate_action_token_count(action_text, len(all_logprobs))
+        action_lps = all_logprobs[-action_token_count:] if action_token_count > 0 else []
 
         logp = sum(action_lps) if action_lps else -1.0
         entropy = estimate_entropy(action_lps)
@@ -182,7 +199,7 @@ class RunPodPolicy:
         action: dict[str, Any],
         temperature: float | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, None]:
-        """EOS always None here; /completions doesn't expose it."""
+        """EOS always None here; replay scoring API doesn't expose final EOS."""
         del temperature
         logp, entropy = self.score_action(obs, action)
         return logp, entropy, None
@@ -211,17 +228,29 @@ class RunPodPolicy:
 
         return None
 
-    def _find_action_boundary(self, prompt: str, total_tokens: int) -> int:
-        tokenizer = self.tokenizer
-        if tokenizer is None:
-            # ~4 chars/token heuristic
-            return max(0, len(prompt) // 4)
+    def _estimate_action_token_count(self, action_text: str, total_tokens: int) -> int:
+        if total_tokens <= 0:
+            return 0
 
-        try:
-            prompt_tokens = tokenizer.encode(prompt, add_special_tokens=False)
-            return len(prompt_tokens)
-        except Exception:
-            return max(0, total_tokens // 2)
+        tokenizer = self.tokenizer
+        if tokenizer is not None:
+            try:
+                action_tokens = tokenizer.encode(action_text, add_special_tokens=False)
+                if action_tokens:
+                    return min(len(action_tokens), total_tokens)
+            except Exception as exc:
+                logger.warning(
+                    "Tokenizer encode failed; using token-count midpoint heuristic for action boundary: %s",
+                    exc,
+                )
+                return min(max(1, total_tokens // 2), total_tokens)
+
+        # ~4 chars/token fallback for tokenizer-less environments
+        logger.warning(
+            "No tokenizer available; using char-count heuristic for action boundary. "
+            "Log-probs may be inaccurate."
+        )
+        return min(max(1, len(action_text) // 4), total_tokens)
 
     def _build_chat_messages(self, obs: str) -> list[dict[str, str]]:
         try:
@@ -235,5 +264,4 @@ class RunPodPolicy:
             {"role": "system", "content": "You are an agent that responds to observations."},
             {"role": "user", "content": obs},
         ]
-
 

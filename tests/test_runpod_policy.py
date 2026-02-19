@@ -206,33 +206,39 @@ class TestSampleWithEos:
 
 class TestScoreAction:
     def test_computes_action_logprobs(self, policy: RunPodPolicy) -> None:
-        prompt_lps: list[float | None] = [None, -0.5, -0.3, -0.2]
-        action_lps = [-0.1, -0.4, -0.2]
-
-        resp = _make_completion_response(prompt_lps, action_lps)
+        # Simulate chat-echo logprobs where the final 3 tokens correspond to action text
+        resp = _make_chat_response(token_logprobs=[-0.8, -0.5, -0.3, -0.2, -0.1])
         mock_client = MagicMock()
-        mock_client.completions.create.return_value = resp
+        mock_client.chat.completions.create.return_value = resp
         policy._client = mock_client
 
         mock_tok = MagicMock()
-        mock_tok.encode.return_value = [1, 2, 3, 4]
+        mock_tok.encode.return_value = [11, 12, 13]
         policy._tokenizer = mock_tok
 
-        logp, ent = policy.score_action("obs", {"type": "answer", "payload": "42"})
+        obs = json.dumps([{"role": "user", "content": "obs"}])
+        action = {"type": "answer", "payload": "42"}
+        logp, ent = policy.score_action(obs, action)
 
         assert isinstance(logp, torch.Tensor)
-        assert logp.item() == pytest.approx(-0.7)
+        assert logp.item() == pytest.approx(-0.6)
+        assert isinstance(ent, torch.Tensor)
+
+        expected_messages = [{"role": "user", "content": "obs"}] + [
+            {"role": "assistant", "content": '{"type": "answer", "payload": "42"}'}
+        ]
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["messages"] == expected_messages
+        assert call_kwargs["max_tokens"] == 0
 
     def test_score_action_with_eos_returns_none(self, policy: RunPodPolicy) -> None:
-        prompt_lps: list[float | None] = [None, -0.5]
-        action_lps = [-0.1]
-        resp = _make_completion_response(prompt_lps, action_lps)
+        resp = _make_chat_response(token_logprobs=[-0.5, -0.1])
         mock_client = MagicMock()
-        mock_client.completions.create.return_value = resp
+        mock_client.chat.completions.create.return_value = resp
         policy._client = mock_client
 
         mock_tok = MagicMock()
-        mock_tok.encode.return_value = [1, 2]
+        mock_tok.encode.return_value = [1]
         policy._tokenizer = mock_tok
 
         logp, ent, eos = policy.score_action_with_eos(
