@@ -205,7 +205,9 @@ class TrajectoryCollector:
             if eos_logp is not None:
                 eos_logps.append(self._to_tensor(eos_logp))
 
-        # clamp both ends to prevent overflow/underflow
+        # log→exp→log round-trip: BufferEntry stores log_reward from collection time,
+        # but CollectedTrajectory.reward is a raw float that build_subtb_batch will
+        # re-log-transform. Minor floating-point drift is acceptable.
         clamped = max(min(entry.log_reward, 700.0), -700.0)
         reward = math.exp(clamped)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import signal
+from dataclasses import replace
 from typing import Any
 
 import torch
@@ -19,7 +20,7 @@ from synthstats.core.constants import (
 from synthstats.envs.builders import build_env
 from synthstats.train.data.collate import build_subtb_batch, extract_reward
 from synthstats.train.data.collectors import TrajectoryCollector
-from synthstats.train.data.replay import GFNReplayBuffer
+from synthstats.train.data.replay import GFNReplayBuffer, ReplayBuffer
 from synthstats.train.objectives.subtb import SubTBConfig, SubTBObjective
 from synthstats.train.runners.base import RunResult
 from synthstats.train.utils.device import resolve_device
@@ -27,6 +28,7 @@ from synthstats.train.utils.seeding import seed_everything
 
 logger = logging.getLogger(__name__)
 
+# reset at the start of each run() call; not re-entrant across threads
 _shutdown_requested = False
 
 
@@ -42,6 +44,7 @@ class LocalRunner:
     def __init__(self, cfg: DictConfig) -> None:
         self.cfg = cfg
         self._checkpoints: list[str] = []
+        self._eos_downgrade_warned = False
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGINT, _handle_signal)
 
@@ -70,6 +73,12 @@ class LocalRunner:
                         "lr": self._optim_cfg.get("policy_lr", 1e-5),
                         "weight_decay": self._optim_cfg.get("weight_decay", 0.0),
                     })
+            if objective.boundary_critic is not None:
+                param_groups.append({
+                    "params": list(objective.boundary_critic.parameters()),
+                    "lr": self._optim_cfg.get("policy_lr", 1e-5),
+                    "weight_decay": self._optim_cfg.get("weight_decay", 0.0),
+                })
             optimizer = torch.optim.AdamW(param_groups)
             max_grad_norm = self._optim_cfg.get("max_grad_norm", 1.0)
 
@@ -101,7 +110,13 @@ class LocalRunner:
             if step == 0:
                 warmstart_cfg = self.cfg.get("sft_warmstart", {})
                 if warmstart_cfg.get("enabled", False) and buffer is not None:
-                    self._warmstart_from_sft(buffer, collector, warmstart_cfg)
+                    if isinstance(buffer, GFNReplayBuffer):
+                        self._warmstart_from_sft(buffer, collector, warmstart_cfg)
+                    else:
+                        logger.warning(
+                            "sft_warmstart.enabled=True requires replay.mode=gfn; "
+                            "skipping warmstart for replay.mode=simple"
+                        )
 
             logger.info(f"Starting training for {num_steps} steps")
             all_metrics: list[dict[str, float]] = []
@@ -122,13 +137,27 @@ class LocalRunner:
                 fresh = collector.collect(episodes=num_fresh, temperature=temperature)
 
                 if buffer is not None:
-                    for traj in fresh:
-                        log_r = math.log(max(extract_reward(traj), reward_floor))
-                        buffer.add_from_trajectory(traj, log_reward=log_r)
+                    if isinstance(buffer, GFNReplayBuffer):
+                        for traj in fresh:
+                            log_r = math.log(max(extract_reward(traj), reward_floor))
+                            buffer.add_from_trajectory(traj, log_reward=log_r)
+                    else:
+                        for traj in fresh:
+                            if hasattr(traj, "detach"):
+                                buffer.add(traj.detach())
+                            else:
+                                buffer.add(traj)
 
                 replay = []
                 if num_replay > 0 and buffer is not None:
-                    replay = buffer.sample(batch_size=num_replay, collector=collector, temperature=temperature)
+                    if isinstance(buffer, GFNReplayBuffer):
+                        replay = buffer.sample(
+                            batch_size=num_replay,
+                            collector=collector,
+                            temperature=temperature,
+                        )
+                    else:
+                        replay = buffer.sample(num_replay)
 
                 trajectories = fresh + replay
 
@@ -136,8 +165,9 @@ class LocalRunner:
                 if replay and fresh:
                     has_eos = [t.eos_logprobs is not None for t in trajectories]
                     if any(has_eos) and not all(has_eos):
-                        from dataclasses import replace
-                        logger.warning("stripping eos_logprobs: replay lacks EOS, falling back to vanilla TB")
+                        if not self._eos_downgrade_warned:
+                            logger.warning("stripping eos_logprobs: replay lacks EOS, falling back to vanilla TB")
+                            self._eos_downgrade_warned = True
                         trajectories = [replace(t, eos_logprobs=None) for t in trajectories]
                         eos_downgraded = True
 
@@ -153,11 +183,12 @@ class LocalRunner:
                 optimizer.step()
 
                 if buffer is not None:
-                    buffer.increment_policy_version()
-                    staleness = buffer.get_staleness_stats()
-                    metrics["buffer_mean_staleness"] = staleness["mean_staleness"]
-                    metrics["buffer_max_staleness"] = staleness["max_staleness"]
                     metrics["buffer_size"] = len(buffer)
+                    if isinstance(buffer, GFNReplayBuffer):
+                        buffer.increment_policy_version()
+                        staleness = buffer.get_staleness_stats()
+                        metrics["buffer_mean_staleness"] = staleness["mean_staleness"]
+                        metrics["buffer_max_staleness"] = staleness["max_staleness"]
 
                 avg_reward = sum(extract_reward(t) for t in trajectories) / len(trajectories)
                 metrics["avg_reward"] = avg_reward
@@ -251,16 +282,25 @@ class LocalRunner:
         )
         return SubTBObjective(config=config, device=device)
 
-    def _build_replay_buffer(self) -> GFNReplayBuffer | None:
+    def _build_replay_buffer(self) -> GFNReplayBuffer | ReplayBuffer | None:
         replay_cfg = self.cfg.get("runner", {}).get("replay", {})
         capacity = replay_cfg.get("capacity", 0)
         if capacity <= 0:
             return None
-        return GFNReplayBuffer(
-            capacity=capacity,
-            prioritized=replay_cfg.get("prioritized", True),
-            alpha=replay_cfg.get("alpha", 1.0),
-        )
+        mode = str(replay_cfg.get("mode", "gfn")).lower()
+        if mode == "gfn":
+            return GFNReplayBuffer(
+                capacity=capacity,
+                prioritized=replay_cfg.get("prioritized", True),
+                alpha=replay_cfg.get("alpha", 1.0),
+            )
+        if mode == "simple":
+            return ReplayBuffer(
+                capacity=capacity,
+                prioritized=replay_cfg.get("prioritized", True),
+                alpha=replay_cfg.get("alpha", 1.0),
+            )
+        raise ValueError(f"Unsupported runner.replay.mode={mode!r}; expected 'gfn' or 'simple'")
 
     def _build_checkpoint_manager(self) -> Any:
         from synthstats.train.checkpointing.torch_full import FullStateCheckpoint
