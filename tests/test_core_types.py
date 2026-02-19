@@ -103,10 +103,14 @@ class TestReward:
             total=0.95,
             components={"likelihood": 0.9, "formatting": 0.05},
             info={"elpd": -10.5},
+            factors={"likelihood": 0.9, "formatting": 1.0},
+            scalarization="weighted_log_product",
         )
         assert reward.total == 0.95
         assert reward.components["likelihood"] == 0.9
         assert reward.info["elpd"] == -10.5
+        assert reward.factors["likelihood"] == 0.9
+        assert reward.scalarization == "weighted_log_product"
 
     def test_reward_empty_components(self):
         from synthstats.core.types import Reward
@@ -117,17 +121,46 @@ class TestReward:
     def test_reward_to_dict(self):
         from synthstats.core.types import Reward
 
-        reward = Reward(total=0.8, components={"a": 0.5}, info={"k": "v"})
+        reward = Reward(
+            total=0.8,
+            components={"a": 0.5},
+            info={"k": "v"},
+            factors={"a": 0.5},
+            scalarization="weighted_sum",
+        )
         d = reward.to_dict()
-        assert d == {"total": 0.8, "components": {"a": 0.5}, "info": {"k": "v"}}
+        assert d == {
+            "total": 0.8,
+            "components": {"a": 0.5},
+            "info": {"k": "v"},
+            "factors": {"a": 0.5},
+            "scalarization": "weighted_sum",
+        }
 
     def test_reward_from_dict(self):
         from synthstats.core.types import Reward
 
-        d = {"total": 0.9, "components": {"b": 0.3}, "info": {}}
+        d = {
+            "total": 0.9,
+            "components": {"b": 0.3},
+            "info": {},
+            "factors": {"b": 0.3},
+            "scalarization": "weighted_log_product",
+        }
         reward = Reward.from_dict(d)
         assert reward.total == 0.9
         assert reward.components == {"b": 0.3}
+        assert reward.factors == {"b": 0.3}
+        assert reward.scalarization == "weighted_log_product"
+
+    def test_reward_from_dict_backward_compatible(self):
+        from synthstats.core.types import Reward
+
+        d = {"total": 0.9, "components": {"b": 0.3}, "info": {}}
+        reward = Reward.from_dict(d)
+
+        assert reward.factors == {}
+        assert reward.scalarization is None
 
     def test_reward_roundtrip(self):
         from synthstats.core.types import Reward

@@ -81,15 +81,29 @@ class Reward:
     total: float
     components: dict[str, float]
     info: dict[str, Any]
+    factors: dict[str, float] = field(default_factory=dict)
+    scalarization: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict."""
-        return {"total": self.total, "components": self.components, "info": self.info}
+        return {
+            "total": self.total,
+            "components": self.components,
+            "info": self.info,
+            "factors": self.factors,
+            "scalarization": self.scalarization,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Reward:
         """Deserialize from dict."""
-        return cls(total=data["total"], components=data["components"], info=data["info"])
+        return cls(
+            total=data["total"],
+            components=data["components"],
+            info=data["info"],
+            factors=data.get("factors", {}),
+            scalarization=data.get("scalarization"),
+        )
 
 
 @dataclass
