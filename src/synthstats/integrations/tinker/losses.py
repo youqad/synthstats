@@ -60,7 +60,7 @@ def compute_combined_tb_subtb_loss(
     eos_logprob: Any | None = None,
     eos_available: Any | None = None,
     log_sparse_reward: float | None = None,
-    subtb_alpha: float = 0.1,
+    ab_subtb_alpha: float = 0.1,
     subtb_lambda: float = SUBTB_LAMBDA_DEFAULT,
     max_residual: float = TB_MAX_RESIDUAL_DEFAULT,
 ) -> tuple[Any, dict[str, float]]:
@@ -152,7 +152,7 @@ def compute_combined_tb_subtb_loss(
         max_residual=max_residual,
     )
 
-    total_loss = tb_loss + subtb_alpha * subtb_loss
+    total_loss = tb_loss + ab_subtb_alpha * subtb_loss
 
     metrics["loss/subtb"] = subtb_metrics["subtb_loss"]
     metrics["loss/total"] = total_loss.item()

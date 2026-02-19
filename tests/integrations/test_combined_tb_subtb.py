@@ -176,7 +176,7 @@ class TestComputeCombinedTBSubTBLoss:
 
         assert metrics_all["loss/subtb"] != metrics_partial["loss/subtb"]
 
-    def test_subtb_alpha_weighting(self):
+    def test_ab_subtb_alpha_weighting(self):
         B, T = 1, 2
         log_pf = torch.zeros(B, T)
         log_reward = torch.zeros(B)
@@ -193,7 +193,7 @@ class TestComputeCombinedTBSubTBLoss:
             loss_mask=loss_mask,
             eos_logprob=eos_logprob,
             eos_available=eos_available,
-            subtb_alpha=0.01,
+            ab_subtb_alpha=0.01,
         )
 
         # high alpha
@@ -204,7 +204,7 @@ class TestComputeCombinedTBSubTBLoss:
             loss_mask=loss_mask,
             eos_logprob=eos_logprob,
             eos_available=eos_available,
-            subtb_alpha=1.0,
+            ab_subtb_alpha=1.0,
         )
 
         assert abs(metrics_low["loss/tb"] - metrics_high["loss/tb"]) < 1e-5

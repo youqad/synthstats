@@ -70,7 +70,7 @@ class TinkerConfig:
     lora_rank: int = 32
     learning_rate: float = 1e-5
     logZ_lr: float = LOGZ_LR_DEFAULT
-    subtb_alpha: float = 0.1
+    ab_subtb_alpha: float = 0.1
     subtb_lambda: float = SUBTB_LAMBDA_DEFAULT  # length discount (fixed per paper)
     tb_max_residual: float = TB_MAX_RESIDUAL_DEFAULT  # clamp for stability
     log_sparse_reward: float | None = None  # per-prefix reward for incomplete programs
@@ -676,7 +676,7 @@ class TinkerTrainer:
                 eos_logprob=eos_lp,
                 eos_available=eos_avail,
                 log_sparse_reward=scaled_sparse,
-                subtb_alpha=getattr(self.config, "subtb_alpha", 0.1),
+                ab_subtb_alpha=getattr(self.config, "ab_subtb_alpha", 0.1),
                 subtb_lambda=getattr(self.config, "subtb_lambda", SUBTB_LAMBDA_DEFAULT),
                 max_residual=getattr(self.config, "tb_max_residual", TB_MAX_RESIDUAL_DEFAULT),
             )
