@@ -130,6 +130,9 @@ def sft_to_buffer_entry(
             "Compute real ELPD reward using compute_sft_rewards() before calling."
         )
 
+    # BufferEntry lives in train.data.replay; imported here for convenience
+    # rather than duplicating the dataclass. Acceptable coupling for a simple
+    # data container with no training-specific logic.
     from synthstats.train.data.replay import BufferEntry
 
     action_payload = example.program if strip_thinking else example.completion

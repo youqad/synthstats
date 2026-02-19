@@ -1,7 +1,11 @@
-"""TB and SubTB trainers for SkyRL.
+"""TB and SubTB trainers with optional SkyRL integration.
 
-Extend RayPPOTrainer with learned logZ and config injection.
-logZ (and eos_logprobs for SubTB) injected via config before each loss step.
+Each trainer class is defined twice:
+- When SkyRL is available: subclasses RayPPOTrainer for distributed training
+- When SkyRL is unavailable: standalone classes for local/testing use
+
+The conditional definitions allow the same import path to work regardless
+of whether SkyRL is installed.
 """
 
 from __future__ import annotations

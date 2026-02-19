@@ -157,6 +157,7 @@ def compute_action_subtb_core(
     batch_loss = torch.tensor(0.0, device=device, dtype=dtype)
     total_weight = torch.tensor(0.0, device=device, dtype=dtype)
 
+    # O(K^2) in compute and memory; acceptable for typical action counts (K < 20)
     for subtraj_len in range(1, K + 1):
         residual = delta_cumsum[:, subtraj_len:] - delta_cumsum[:, :-subtraj_len]
         residual = residual.clamp(-max_residual, max_residual)

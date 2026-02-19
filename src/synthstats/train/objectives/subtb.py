@@ -243,6 +243,9 @@ class SubTBObjective(nn.Module):
         B, T = log_probs.shape
         safe_log_reward = sanitize_finite(log_reward, -self.config.tb_max_residual)
 
+        # detach logZ: gradient for logZ flows only through the TB anchor term
+        # (computed in forward()), not through the SubTB regularizer or boundary
+        # critic. This prevents conflicting gradient signals on logZ.
         start_u = self.logZ.detach().expand(B)
         terminal_u = safe_log_reward
 

@@ -8,21 +8,24 @@ logZ_init: 0.0
 logZ_lr: 0.01  # 100x model lr per gfn-lm-tuning
 tb_max_residual: 100.0
 
-subtb_alpha: 0.1
+ab_subtb_alpha: 0.1
 subtb_lambda: 0.9
 log_sparse_reward: null  # auto-scaled by reward_temperature
 
+# not yet consumed by any runner; planned for reward temperature annealing
 reward_schedule:
   start: 1.0
   end: 0.1
   horizon: 1000
   mode: linear  # linear | cosine
 
+# not yet consumed by any runner; planned for temperature perturbation
 exploration:
   pf_temp_low: 0.5
   pf_temp_high: 2.0
   perturb_prob: 0.5
 
+# not yet consumed by any runner; planned for on-policy/replay/perturbed mixing
 behavior_mix:
   on_policy: 0.25
   replay: 0.25
