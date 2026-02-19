@@ -23,7 +23,6 @@ SUBMIT_PROGRAM_PATTERN = re.compile(r"<submit_program>(.*?)</submit_program>", r
 
 @dataclass
 class SFTExample:
-
     prompt: str
     completion: str
     thinking: str | None

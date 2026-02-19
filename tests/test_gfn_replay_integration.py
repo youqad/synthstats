@@ -11,7 +11,6 @@ import torch
 
 
 class MockScoreFn:
-
     def __init__(self, eos_logprob: float = -0.5):
         self._eos_logprob = eos_logprob
         self._last_eos_logprob_final = eos_logprob
@@ -36,7 +35,6 @@ class MockScoreFn:
 
 
 class MockEnv:
-
     def __init__(self):
         self.chat_history = []
         self._step_count = 0
@@ -57,7 +55,6 @@ class MockEnv:
 
 
 class MockPolicyFn:
-
     def __init__(self):
         self._last_eos_logprob_final = -0.5
 
@@ -98,7 +95,6 @@ class MockPolicyFn:
 
 
 class TestEOSLogprobsInReplay:
-
     def test_collect_sets_eos_logprobs(self):
         from synthstats.train.data.collectors import TrajectoryCollector
 
@@ -192,7 +188,6 @@ class TestEOSLogprobsInReplay:
 
 
 class TestPrioritizedSamplingMath:
-
     def test_prioritized_sampling_is_reward_proportional(self):
         from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer
 
@@ -261,7 +256,6 @@ class TestPrioritizedSamplingMath:
 
 
 class TestGFNReplayBufferIntegration:
-
     def test_full_replay_cycle(self):
         from synthstats.train.data.collectors import TrajectoryCollector
         from synthstats.train.data.replay import BufferEntry, GFNReplayBuffer

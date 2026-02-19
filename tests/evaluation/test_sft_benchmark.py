@@ -185,9 +185,7 @@ class TestEvaluateOnSFT:
 
         assert result.generation_success == 0.5
 
-    def test_submit_program_counts_as_success(
-        self, mock_policy, sample_examples
-    ):
+    def test_submit_program_counts_as_success(self, mock_policy, sample_examples):
         policy = mock_policy(
             [
                 "<submit_program>\nx = 1\n</submit_program>",
@@ -205,9 +203,7 @@ class TestEvaluateOnSFT:
         assert result.generation_success == 1.0
         assert result.program_match == 1.0
 
-    def test_structured_submit_is_program_generation(
-        self, mock_policy, sample_examples
-    ):
+    def test_structured_submit_is_program_generation(self, mock_policy, sample_examples):
         policy = mock_policy(
             [
                 "x = 1",
@@ -225,9 +221,7 @@ class TestEvaluateOnSFT:
         assert result.generation_success == 1.0
         assert result.program_match == 1.0
 
-    def test_structured_submit_rejects_trivial_id(
-        self, mock_policy, sample_examples
-    ):
+    def test_structured_submit_rejects_trivial_id(self, mock_policy, sample_examples):
         policy = mock_policy(
             [
                 "done",

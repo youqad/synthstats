@@ -21,7 +21,6 @@ from synthstats.train.objectives.losses import subtb_loss
 
 @dataclass
 class TrainerConfig:
-
     batch_size: int = 4
     learning_rate: float = 1e-4
     logZ_lr: float = LOGZ_LR_DEFAULT
@@ -39,7 +38,6 @@ class TrainerConfig:
 
 @dataclass
 class TrainMetrics:
-
     loss: float
     logZ: float
     avg_reward: float

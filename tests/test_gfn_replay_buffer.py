@@ -12,7 +12,6 @@ import torch
 
 @dataclass
 class MockTrajectory:
-
     observations: list[str]
     actions: list[dict[str, Any]]
     log_probs: torch.Tensor = field(default_factory=lambda: torch.tensor([]))

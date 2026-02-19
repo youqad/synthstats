@@ -11,13 +11,11 @@ from synthstats.core.types import Message, StepResult
 
 @dataclass
 class ToyState:
-
     step: int = 0
     done: bool = False
 
 
 class ToyTask:
-
     name = "toy"
 
     def reset(self, seed: int | None = None) -> ToyState:

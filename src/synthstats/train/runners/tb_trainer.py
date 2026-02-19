@@ -183,6 +183,7 @@ try:
     SKYRL_AVAILABLE = True
 
 except ImportError:
+
     class TBTrainer(TBTrainerMixin):  # type: ignore[no-redef]
         """Standalone TB trainer (logZ management only, no SkyRL)."""
 

@@ -63,22 +63,30 @@ class LocalRunner:
             objective = self._build_objective(device)
 
             param_groups: list[dict[str, Any]] = [
-                {"params": [objective.logZ], "lr": self._optim_cfg.get("logZ_lr", LOGZ_LR_DEFAULT), "weight_decay": 0.0},
+                {
+                    "params": [objective.logZ],
+                    "lr": self._optim_cfg.get("logZ_lr", LOGZ_LR_DEFAULT),
+                    "weight_decay": 0.0,
+                },
             ]
             if hasattr(policy, "parameters") and callable(policy.parameters):
                 policy_params = [p for p in policy.parameters() if p.requires_grad]
                 if policy_params:
-                    param_groups.append({
-                        "params": policy_params,
+                    param_groups.append(
+                        {
+                            "params": policy_params,
+                            "lr": self._optim_cfg.get("policy_lr", 1e-5),
+                            "weight_decay": self._optim_cfg.get("weight_decay", 0.0),
+                        }
+                    )
+            if objective.boundary_critic is not None:
+                param_groups.append(
+                    {
+                        "params": list(objective.boundary_critic.parameters()),
                         "lr": self._optim_cfg.get("policy_lr", 1e-5),
                         "weight_decay": self._optim_cfg.get("weight_decay", 0.0),
-                    })
-            if objective.boundary_critic is not None:
-                param_groups.append({
-                    "params": list(objective.boundary_critic.parameters()),
-                    "lr": self._optim_cfg.get("policy_lr", 1e-5),
-                    "weight_decay": self._optim_cfg.get("weight_decay", 0.0),
-                })
+                    }
+                )
             optimizer = torch.optim.AdamW(param_groups)
             max_grad_norm = self._optim_cfg.get("max_grad_norm", 1.0)
 
@@ -166,7 +174,10 @@ class LocalRunner:
                     has_eos = [t.eos_logprobs is not None for t in trajectories]
                     if any(has_eos) and not all(has_eos):
                         if not self._eos_downgrade_warned:
-                            logger.warning("stripping eos_logprobs: replay lacks EOS, falling back to vanilla TB")
+                            logger.warning(
+                                "stripping eos_logprobs: replay lacks EOS,"
+                                " falling back to vanilla TB"
+                            )
                             self._eos_downgrade_warned = True
                         trajectories = [replace(t, eos_logprobs=None) for t in trajectories]
                         eos_downgraded = True
@@ -177,7 +188,9 @@ class LocalRunner:
                 loss.backward()
 
                 if max_grad_norm is not None:
-                    params = [p for g in optimizer.param_groups for p in g["params"] if p.grad is not None]
+                    params = [
+                        p for g in optimizer.param_groups for p in g["params"] if p.grad is not None
+                    ]
                     if params:
                         torch.nn.utils.clip_grad_norm_(params, max_grad_norm)
                 optimizer.step()
@@ -226,7 +239,11 @@ class LocalRunner:
                 logger_sink.close()
 
             final_metrics = all_metrics[-1] if all_metrics else {}
-            return RunResult(metrics=final_metrics, checkpoints=self._checkpoints, interrupted=_shutdown_requested)
+            return RunResult(
+                metrics=final_metrics,
+                checkpoints=self._checkpoints,
+                interrupted=_shutdown_requested,
+            )
 
         except Exception as e:
             logger.exception("Training failed")
@@ -242,14 +259,17 @@ class LocalRunner:
         policy_cfg = self.cfg.get("policy", {})
         if "_target_" in policy_cfg:
             from hydra.utils import instantiate
+
             return instantiate(policy_cfg)
 
         model_name = policy_cfg.get("model_name", "mock")
         if model_name == "mock":
             from synthstats.policies.hf_policy import MockHFPolicy
+
             return MockHFPolicy(device=device)
 
         from synthstats.policies.hf_policy import HFPolicy
+
         return HFPolicy(
             model_name=model_name,
             device=device,
@@ -321,11 +341,15 @@ class LocalRunner:
         logging_cfg = self.cfg.get("logging", {})
         if "_target_" in logging_cfg:
             from hydra.utils import instantiate
+
             target = logging_cfg.get("_target_", "")
             if "WandbLogger" in target and "config" not in logging_cfg:
-                return instantiate(logging_cfg, config=OmegaConf.to_container(self.cfg, resolve=True))
+                return instantiate(
+                    logging_cfg, config=OmegaConf.to_container(self.cfg, resolve=True)
+                )
             return instantiate(logging_cfg)
         from synthstats.train.logging.stdout import StdoutLogger
+
         return StdoutLogger()
 
     def _warmstart_from_sft(
@@ -385,12 +409,16 @@ class LocalRunner:
                     log_clamp = (float(seq[0]), float(seq[1]))
 
             show_progress = warmstart_cfg.get("show_progress", True)
-            log_rewards = compute_sft_rewards(examples, reward_fn, log_clamp=log_clamp, show_progress=show_progress)
+            log_rewards = compute_sft_rewards(
+                examples, reward_fn, log_clamp=log_clamp, show_progress=show_progress
+            )
         else:
             log_rewards = [log_reward_default] * len(examples)
 
         entries = [
-            sft_to_buffer_entry(ex, policy_version=0, log_reward=log_r, strip_thinking=strip_thinking)
+            sft_to_buffer_entry(
+                ex, policy_version=0, log_reward=log_r, strip_thinking=strip_thinking
+            )
             for ex, log_r in zip(examples, log_rewards, strict=False)
         ]
         added = buffer.pre_populate(entries, dedupe=dedupe)

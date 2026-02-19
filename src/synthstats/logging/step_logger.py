@@ -8,7 +8,6 @@ from typing import Any
 
 @dataclass
 class StepLogger:
-
     wandb_module: Any = None
     prefix: str = "train/"
     history: list[dict[str, Any]] = field(default_factory=list)

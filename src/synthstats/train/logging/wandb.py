@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class WandbLogger:
-
     def __init__(
         self,
         project: str = "synthstats",

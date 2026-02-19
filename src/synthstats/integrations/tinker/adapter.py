@@ -44,9 +44,7 @@ def require_tinker() -> Any:
 
         return tinker
     except ImportError as e:
-        raise TinkerOptionalDependencyError(
-            "tinker not installed. pip install tinker"
-        ) from e
+        raise TinkerOptionalDependencyError("tinker not installed. pip install tinker") from e
 
 
 def _make_service_client(config: TinkerConfig) -> Any:
@@ -799,7 +797,6 @@ class TinkerTrainer:
 
 @runtime_checkable
 class TinkerEnvProtocol(Protocol):
-
     def initial_observation(self) -> str: ...
 
     async def step(self, action: Any) -> Any: ...
@@ -807,7 +804,6 @@ class TinkerEnvProtocol(Protocol):
 
 @dataclass
 class MockTinkerClient:
-
     model: str = "mock-model"
 
     def sample(
@@ -833,7 +829,6 @@ class MockTinkerClient:
 
 @dataclass
 class MockTokenizer:
-
     def encode(self, text: str, add_special_tokens: bool = True) -> list[int]:
         return list(range(len(text)))
 
@@ -846,7 +841,6 @@ class MockTokenizer:
 
 @dataclass
 class MockTinkerTrainingClient:
-
     model: str = "mock-model"
     learning_rate: float = 1e-5
     lora_rank: int | None = 32

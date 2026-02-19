@@ -197,11 +197,11 @@ class ASTSecurityChecker(ast.NodeVisitor):
             "pandas",
             "pd",
             "jax",
-        "numpyro",
-        "torch",
-        "time",
-    }
-)
+            "numpyro",
+            "torch",
+            "time",
+        }
+    )
 
     def __init__(self):
         self.violations: list[str] = []
@@ -358,6 +358,7 @@ class PyMCExecutor:
 
         Uses stdin to pass code directly, avoiding temp file TOCTOU vulnerability.
         """
+
         def _set_rlimits() -> None:
             """Unix resource limits for subprocess."""
             try:

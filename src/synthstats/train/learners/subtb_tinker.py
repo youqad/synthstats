@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 @dataclass
 class SubTBTinkerConfig:
-
     api_key: str | None = None
     base_url: str | None = None
     model: str = "Qwen/Qwen3-4B"

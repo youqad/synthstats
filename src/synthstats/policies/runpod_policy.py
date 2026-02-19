@@ -37,9 +37,7 @@ class RunPodConfig:
     def get_api_key(self) -> str:
         key = self.api_key or os.environ.get("RUNPOD_API_KEY")
         if not key:
-            raise ValueError(
-                "RunPod API key required. Set RUNPOD_API_KEY env var or pass api_key."
-            )
+            raise ValueError("RunPod API key required. Set RUNPOD_API_KEY env var or pass api_key.")
         return key
 
     def get_endpoint_id(self) -> str:
@@ -146,9 +144,7 @@ class RunPodPolicy:
 
         return action, logp, entropy, eos_logprob
 
-    def score_action(
-        self, obs: str, action: dict[str, Any]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def score_action(self, obs: str, action: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor]:
         """Re-score an action using chat completions with echoed prompt tokens.
 
         This keeps replay scoring aligned with `sample_with_eos`, which also uses
@@ -240,7 +236,7 @@ class RunPodPolicy:
                     return min(len(action_tokens), total_tokens)
             except Exception as exc:
                 logger.warning(
-                    "Tokenizer encode failed; using token-count midpoint heuristic for action boundary: %s",
+                    "Tokenizer encode failed; using midpoint heuristic for action boundary: %s",
                     exc,
                 )
                 return min(max(1, total_tokens // 2), total_tokens)
@@ -264,4 +260,3 @@ class RunPodPolicy:
             {"role": "system", "content": "You are an agent that responds to observations."},
             {"role": "user", "content": obs},
         ]
-

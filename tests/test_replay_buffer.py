@@ -16,7 +16,6 @@ def make_trajectory(reward_total: float = 0.5) -> Trajectory:
 
 
 class TestReplayBufferBasics:
-
     def test_buffer_add_and_len(self):
         from synthstats.train.data.replay import ReplayBuffer
 
@@ -73,7 +72,6 @@ class TestReplayBufferBasics:
 
 
 class TestReplayBufferEdgeCases:
-
     def test_empty_buffer_sample_raises(self):
         from synthstats.train.data.replay import ReplayBuffer
 
@@ -104,7 +102,6 @@ class TestReplayBufferEdgeCases:
 
 
 class TestPrioritizedBuffer:
-
     def test_prioritized_buffer_weights_by_reward(self):
         from synthstats.train.data.replay import ReplayBuffer
 
@@ -207,7 +204,6 @@ class TestReplayBufferIteration:
 
 
 class TestReplayBufferStateDictCheckpointing:
-
     def test_state_dict_returns_serializable_dict(self):
         from synthstats.train.data.replay import ReplayBuffer
 

@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -91,7 +90,9 @@ def _make_chat_response(
         content.append(_MockTokenLogprob(token=f"tok_{i}", logprob=lp, top_logprobs=top))
 
     return _MockChatResponse(
-        choices=[_MockChoice(message=_MockMessage(content=text), logprobs=_MockLogprobs(content=content))]
+        choices=[
+            _MockChoice(message=_MockMessage(content=text), logprobs=_MockLogprobs(content=content))
+        ]
     )
 
 
@@ -241,9 +242,7 @@ class TestScoreAction:
         mock_tok.encode.return_value = [1]
         policy._tokenizer = mock_tok
 
-        logp, ent, eos = policy.score_action_with_eos(
-            "obs", {"type": "answer", "payload": "x"}
-        )
+        logp, ent, eos = policy.score_action_with_eos("obs", {"type": "answer", "payload": "x"})
 
         assert isinstance(logp, torch.Tensor)
         assert eos is None
@@ -314,9 +313,7 @@ class TestParseAction:
         assert result == {"type": "answer", "payload": "some text"}
 
     def test_strips_think_tags(self) -> None:
-        result = parse_action(
-            '<think>reasoning here</think>{"type": "answer", "payload": "42"}'
-        )
+        result = parse_action('<think>reasoning here</think>{"type": "answer", "payload": "42"}')
         assert result == {"type": "answer", "payload": "42"}
 
 

@@ -13,7 +13,9 @@ import torch
 from synthstats.core.types import Action, FinalAnswer, Program, ToolCall
 
 PolicyOut3 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor]
-PolicyOut4 = tuple[dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None]
+PolicyOut4 = tuple[
+    dict[str, Any], float | torch.Tensor, float | torch.Tensor, float | torch.Tensor | None
+]
 PolicyFnLegacy = Callable[[str], PolicyOut3 | PolicyOut4]
 PolicyFnWithTemp = Callable[[str, float], PolicyOut3 | PolicyOut4]
 PolicyFn = PolicyFnLegacy | PolicyFnWithTemp

@@ -128,11 +128,7 @@ def test_optimizer_includes_boundary_critic_params(monkeypatch: pytest.MonkeyPat
     param_groups = captured["param_groups"]
     assert isinstance(param_groups, list)
 
-    optimizer_param_ids = {
-        id(p)
-        for group in param_groups
-        for p in group["params"]
-    }
+    optimizer_param_ids = {id(p) for group in param_groups for p in group["params"]}
     boundary_param_ids = {id(p) for p in objective.boundary_critic.parameters()}
 
     assert boundary_param_ids.issubset(optimizer_param_ids)

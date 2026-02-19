@@ -20,7 +20,6 @@ SUBMIT_PROGRAM_PATTERN = re.compile(r"<submit_program>(.*?)</submit_program>", r
 
 @dataclass
 class BenchmarkResult:
-
     num_examples: int
     exact_match: float
     program_match: float

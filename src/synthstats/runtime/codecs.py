@@ -16,7 +16,6 @@ class ParseError(Exception):
 
 @dataclass
 class ToolSpec:
-
     name: str
     description: str
     parameters: dict[str, Any]
@@ -24,7 +23,6 @@ class ToolSpec:
 
 @runtime_checkable
 class ActionCodec(Protocol):
-
     def format_action_spec(self, tools: list[ToolSpec]) -> str: ...
 
     def parse(self, assistant_text: str) -> Action: ...

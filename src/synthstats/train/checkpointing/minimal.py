@@ -70,4 +70,3 @@ class MinimalCheckpoint(_BaseCheckpointManager):
             config={},
             metrics_history=data.get("metrics_history", []),
         )
-

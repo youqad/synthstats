@@ -43,7 +43,6 @@ def _make_trajectory(
 
 
 class _MockPolicy:
-
     def __init__(self) -> None:
         self._last_eos_logprob_final: float | None = None
 
@@ -74,7 +73,6 @@ class _MockPolicy:
 
 
 class _MockEnv:
-
     chat_history: list[dict[str, str]] | None = None
 
     def init(self) -> tuple[list[dict[str, str]], dict]:
@@ -89,7 +87,6 @@ class _MockEnv:
 
 
 class TestGFNReplayBufferPrioritizedMath:
-
     def test_uniform_when_alpha_zero(self):
         random.seed(99)  # seed at start for determinism
         buf = GFNReplayBuffer(capacity=100, prioritized=True, alpha=0.0)
@@ -161,7 +158,6 @@ class TestGFNReplayBufferPrioritizedMath:
 
 
 class _MockCollector:
-
     def replay_entry(self, entry: Any, temperature: float = 1.0) -> CollectedTrajectory | None:
         n = len(entry.actions)
         if n == 0:
@@ -192,7 +188,6 @@ class TestReplayEntryEOSLogprobs:
         assert torch.allclose(result.eos_logprobs, torch.tensor([-2.0, -2.0]))
 
     def test_replay_entry_no_eos_when_score_fn_doesnt_set_it(self):
-
         class PolicyNoEOS:
             _last_eos_logprob_final = None
 
@@ -214,7 +209,6 @@ class TestReplayEntryEOSLogprobs:
 
 
 class TestBatchBuildingEOSMixing:
-
     def test_all_with_eos_succeeds(self):
         from synthstats.train.data.collate import build_subtb_batch
 
@@ -264,7 +258,6 @@ class TestBatchBuildingEOSMixing:
 
 
 class TestLoopRunnerEOSStripping:
-
     def test_strips_eos_when_fresh_has_eos_and_replay_lacks_it(self):
         from synthstats.train.loop.loop_runner import LoopConfig, LoopRunner
 
@@ -280,7 +273,6 @@ class TestLoopRunnerEOSStripping:
                 return 0.0
 
         class _FreshEOSCollector:
-
             def collect(self, episodes: int, temperature: float, **kw):
                 return [
                     _make_trajectory(n_steps=2, reward=1.0, with_eos=True) for _ in range(episodes)
@@ -323,7 +315,6 @@ class TestLoopRunnerEOSStripping:
                 return 0.0
 
         class _AllEOSCollector:
-
             def collect(self, episodes: int, temperature: float, **kw):
                 return [
                     _make_trajectory(n_steps=2, reward=1.0, with_eos=True) for _ in range(episodes)

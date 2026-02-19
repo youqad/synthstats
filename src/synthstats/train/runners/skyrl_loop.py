@@ -39,7 +39,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TrainingConfig:
-
     # episodes per batch
     num_episodes: int = 100
     batch_size: int = 4

@@ -38,7 +38,6 @@ class ToyTask:
 
 
 class ToyJudge:
-
     def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
         return Reward(
             total=1.0,

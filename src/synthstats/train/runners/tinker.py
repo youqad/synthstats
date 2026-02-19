@@ -9,10 +9,10 @@ from omegaconf import DictConfig
 
 from synthstats.envs.builders import build_env
 from synthstats.train.checkpointing.minimal import MinimalCheckpoint
-from synthstats.train.learners.subtb_tinker import SubTBTinkerConfig, SubTBTinkerLearner
-from synthstats.train.logging.stdout import StdoutLogger
 from synthstats.train.data.collate import build_tinker_batch
 from synthstats.train.data.collectors import TrajectoryCollector
+from synthstats.train.learners.subtb_tinker import SubTBTinkerConfig, SubTBTinkerLearner
+from synthstats.train.logging.stdout import StdoutLogger
 from synthstats.train.loop.loop_runner import LoopConfig, LoopRunner
 from synthstats.train.runners.base import RunResult
 from synthstats.train.utils.device import resolve_device

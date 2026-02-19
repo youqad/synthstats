@@ -28,7 +28,6 @@ def make_buffer_entry(log_reward: float = 0.0, policy_version: int = 0) -> Buffe
 
 
 class TestReplayBufferProperties:
-
     @given(
         capacity=st.integers(min_value=1, max_value=100),
         n_adds=st.integers(min_value=0, max_value=200),
@@ -107,7 +106,6 @@ class TestReplayBufferProperties:
 
 
 class TestGFNReplayBufferProperties:
-
     @given(
         capacity=st.integers(min_value=1, max_value=100),
         n_adds=st.integers(min_value=0, max_value=200),

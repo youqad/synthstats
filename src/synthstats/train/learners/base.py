@@ -7,7 +7,6 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class Learner(Protocol):
-
     def update(self, batch: dict[str, Any]) -> dict[str, float]:
         """Update parameters from a batch, return metrics."""
         ...

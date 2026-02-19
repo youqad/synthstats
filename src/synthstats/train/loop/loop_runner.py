@@ -193,8 +193,7 @@ class LoopRunner:
         # guard: strip EOS when mixing fresh (has EOS) + replay (no EOS)
         if replay_trajectories and fresh_trajectories:
             has_eos = [
-                hasattr(t, "eos_logprobs") and t.eos_logprobs is not None
-                for t in trajectories
+                hasattr(t, "eos_logprobs") and t.eos_logprobs is not None for t in trajectories
             ]
             if any(has_eos) and not all(has_eos):
                 logger.warning(
@@ -202,9 +201,7 @@ class LoopRunner:
                 )
                 self._last_eos_downgraded = True
                 return [
-                    replace(t, eos_logprobs=None)
-                    if dataclasses.is_dataclass(t)
-                    else t
+                    replace(t, eos_logprobs=None) if dataclasses.is_dataclass(t) else t
                     for t in trajectories
                 ]
 

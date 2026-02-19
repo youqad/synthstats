@@ -11,7 +11,6 @@ from synthstats.train.runners.base import RunResult
 
 
 class TestGetRunner:
-
     def test_local_runner(self):
         cfg = OmegaConf.create(
             {
@@ -62,7 +61,6 @@ class TestGetRunner:
 
 
 class TestRunnerIntegration:
-
     def test_local_runner_initializes(self):
         cfg = OmegaConf.create(
             {
@@ -87,7 +85,6 @@ class TestRunnerIntegration:
 
 
 class TestTrainUtils:
-
     def test_resolve_device_cpu(self):
         from synthstats.train.utils.device import resolve_device
 
@@ -110,7 +107,6 @@ class TestTrainUtils:
 
 
 class TestConfigFiles:
-
     @pytest.fixture
     def config_dir(self):
         return Path(__file__).parent.parent / "configs"
@@ -139,7 +135,6 @@ class TestConfigFiles:
 
 
 class TestRunResult:
-
     def test_run_result_defaults(self):
         result = RunResult()
         assert result.metrics == {}
@@ -161,7 +156,6 @@ class TestRunResult:
 
 
 class TestHydraConfigIntegration:
-
     @pytest.fixture
     def config_dir(self):
         return Path(__file__).parent.parent / "configs"

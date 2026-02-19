@@ -6,7 +6,6 @@ from scripts.train_skyrl import build_task
 
 
 def test_build_task_toy_does_not_import_test_fixtures(monkeypatch):
-
     real_import = builtins.__import__
 
     def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
