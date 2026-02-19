@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -54,12 +55,22 @@ class LLMCriticJudge:
         num_samples: int = 1,
         prompt_template: str | None = None,
         default_score: float = 0.5,
+        api_base: str | None = None,
+        api_key_env_var: str | None = None,
+        max_tokens: int = 256,
+        timeout_s: float | None = None,
+        max_retries: int | None = None,
     ):
         self.model_name = model_name
         self.temperature = temperature
         self.num_samples = max(1, num_samples)
         self.prompt_template = prompt_template or DEFAULT_PROMPT_TEMPLATE
         self.default_score = default_score
+        self.api_base = api_base
+        self.api_key_env_var = api_key_env_var
+        self.max_tokens = max(1, int(max_tokens))
+        self.timeout_s = timeout_s
+        self.max_retries = max_retries
 
     def _build_prompt(self, program: str, task_name: str) -> str:
         return self.prompt_template.format(task_name=task_name, program=program)
@@ -98,12 +109,24 @@ class LLMCriticJudge:
             return None
 
         try:
-            response = litellm.completion(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-                max_tokens=256,
-            )
+            kwargs: dict[str, Any] = {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+            }
+            if self.api_base:
+                kwargs["api_base"] = self.api_base
+            if self.api_key_env_var:
+                api_key = os.getenv(self.api_key_env_var)
+                if api_key:
+                    kwargs["api_key"] = api_key
+            if self.timeout_s is not None:
+                kwargs["timeout"] = float(self.timeout_s)
+            if self.max_retries is not None:
+                kwargs["num_retries"] = int(self.max_retries)
+
+            response = litellm.completion(**kwargs)
             return response.choices[0].message.content
         except Exception:
             # API errors, missing keys, rate limits, etc.

@@ -1,6 +1,8 @@
 """Tests for Judge implementations - WRITTEN FIRST per TDD."""
 
 import math
+import sys
+import types
 
 import pytest
 
@@ -248,7 +250,8 @@ class TestCompositeJudge:
             [
                 (likelihood, 0.7),
                 (formatting, 0.3),
-            ]
+            ],
+            scalarization_mode="weighted_sum",
         )
         traj = make_trajectory()
         artifacts = {"elpd": 0.0, "program": "x = 1"}
@@ -271,7 +274,8 @@ class TestCompositeJudge:
             [
                 (likelihood, 0.7),
                 (formatting, 0.3),
-            ]
+            ],
+            scalarization_mode="weighted_sum",
         )
         traj = make_trajectory()
         artifacts = {"elpd": 0.0, "program": "import subprocess"}
@@ -281,6 +285,40 @@ class TestCompositeJudge:
         # 0.7 * 1.0 + 0.3 * 0.0 = 0.7
         expected = 0.7 * 1.0 + 0.3 * 0.0
         assert reward.total == pytest.approx(expected)
+
+    def test_composite_judge_default_uses_weighted_log_product(self):
+        from synthstats.core.judge import Judge
+        from synthstats.judges import CompositeJudge
+
+        class _LowJudge:
+            def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
+                del task_name, trajectory, artifacts
+                return Reward(total=0.25, components={}, info={})
+
+        class _HighJudge:
+            def score(self, *, task_name: str, trajectory: Trajectory, artifacts: dict) -> Reward:
+                del task_name, trajectory, artifacts
+                return Reward(total=4.0, components={}, info={})
+
+        assert isinstance(_LowJudge(), Judge)
+        assert isinstance(_HighJudge(), Judge)
+
+        judge = CompositeJudge(
+            [
+                (_LowJudge(), 0.5),
+                (_HighJudge(), 0.5),
+            ]
+        )
+        traj = make_trajectory()
+
+        reward = judge.score(task_name="test", trajectory=traj, artifacts={})
+
+        assert reward.total == pytest.approx(1.0)
+        assert reward.info["scalarization_mode"] == "weighted_log_product"
+        assert reward.info["factor_weights"] == {
+            "_LowJudge": 0.5,
+            "_HighJudge": 0.5,
+        }
 
     def test_composite_judge_components_track_individual_scores(self):
         from synthstats.judges import CompositeJudge, FormattingJudge, LikelihoodJudge
@@ -331,11 +369,21 @@ class TestLLMCriticJudge:
             temperature=0.5,
             num_samples=3,
             default_score=0.3,
+            api_base="https://api.example.com/v1",
+            api_key_env_var="FAKE_LLM_KEY",
+            max_tokens=512,
+            timeout_s=12.0,
+            max_retries=4,
         )
         assert judge.model_name == "claude-3-haiku-20240307"
         assert judge.temperature == 0.5
         assert judge.num_samples == 3
         assert judge.default_score == 0.3
+        assert judge.api_base == "https://api.example.com/v1"
+        assert judge.api_key_env_var == "FAKE_LLM_KEY"
+        assert judge.max_tokens == 512
+        assert judge.timeout_s == 12.0
+        assert judge.max_retries == 4
 
     def test_llm_critic_judge_builds_prompt(self):
         from synthstats.judges import LLMCriticJudge
@@ -533,6 +581,40 @@ RATIONALE: Good basic model."""
         assert reward.components["problem_alignment"] == pytest.approx((0.7 + 0.9) / 2)
         assert reward.info["num_samples"] == 2
 
+    def test_llm_critic_judge_call_llm_passes_provider_settings(self, monkeypatch):
+        from synthstats.judges import LLMCriticJudge
+
+        captured: dict[str, object] = {}
+
+        def _completion(**kwargs):
+            captured.update(kwargs)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok"))]
+            )
+
+        monkeypatch.setenv("FAKE_LLM_KEY", "secret")
+        monkeypatch.setitem(sys.modules, "litellm", types.SimpleNamespace(completion=_completion))
+
+        judge = LLMCriticJudge(
+            model_name="openai/gpt-5-mini",
+            api_base="https://proxy.example.com/v1",
+            api_key_env_var="FAKE_LLM_KEY",
+            max_tokens=321,
+            timeout_s=9.0,
+            max_retries=2,
+            temperature=0.1,
+        )
+
+        response = judge._call_llm("hello")
+
+        assert response == "ok"
+        assert captured["model"] == "openai/gpt-5-mini"
+        assert captured["api_base"] == "https://proxy.example.com/v1"
+        assert captured["api_key"] == "secret"
+        assert captured["max_tokens"] == 321
+        assert captured["timeout"] == 9.0
+        assert captured["num_retries"] == 2
+
     def test_llm_critic_judge_num_samples_minimum(self):
         """Test that num_samples is at least 1."""
         from synthstats.judges import LLMCriticJudge
@@ -556,7 +638,8 @@ RATIONALE: Good basic model."""
             [
                 (llm_critic, 0.6),
                 (formatting, 0.4),
-            ]
+            ],
+            scalarization_mode="weighted_sum",
         )
 
         traj = make_trajectory()
