@@ -107,6 +107,9 @@ class BoxingEnv(BaseTextEnv):  # type: ignore[misc]
         executors: dict[str, Executor] | None = None,
         judge: Judge | None = None,
         config: BoxingEnvConfig | None = None,
+        *,
+        name: str | None = None,
+        max_steps: int | None = None,
     ) -> None:
         if hasattr(super(), "__init__"):
             super().__init__()

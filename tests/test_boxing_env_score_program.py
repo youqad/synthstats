@@ -9,6 +9,21 @@ from synthstats.envs.boxing_env import BoxingEnv, BoxingEnvConfig
 from synthstats.judges.likelihood import LikelihoodJudge
 
 
+def test_boxing_env_accepts_hydra_metadata_kwargs() -> None:
+    """Hydra env configs include name/max_steps keys at the top level."""
+    env = BoxingEnv(
+        task=SimpleNamespace(name="dummy"),
+        codec=SimpleNamespace(),
+        executors={},
+        judge=None,
+        config=BoxingEnvConfig(max_turns=7),
+        name="dugongs",
+        max_steps=20,
+    )
+
+    assert env.max_turns == 7
+
+
 def test_score_program_uses_judge(monkeypatch) -> None:
     env = object.__new__(BoxingEnv)
     env.task = SimpleNamespace(name="dummy")
