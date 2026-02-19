@@ -583,7 +583,6 @@ class TestSubTBTrainerMixin:
 
 
 class TestSkyRLRegistration:
-
     @pytest.mark.skipif(not SKYRL_REGISTERED, reason="SkyRL not available")
     def test_modified_subtb_registered(self):
         from skyrl_train.utils.ppo_utils import PolicyLossRegistry
@@ -832,4 +831,23 @@ class TestEOSLogprobPipeline:
 
         # should still work (vanilla TB)
         assert "loss" in result
+        assert not torch.isnan(torch.tensor(result["loss"]))
+
+    def test_skyrl_trainer_supports_agentic_subtb(self):
+        from synthstats.train.runners.skyrl_subtb import SkyRLSubTBConfig, SkyRLSubTBTrainer
+
+        config = SkyRLSubTBConfig(loss_type="agentic_subtb")
+        trainer = SkyRLSubTBTrainer(config=config)
+
+        batch = {
+            "log_probs": torch.randn(2, 5),
+            "log_reward": torch.tensor([1.0, 2.0]),
+            "loss_mask": torch.ones(2, 5, dtype=torch.bool),
+            "entropy": torch.randn(2, 5),
+        }
+
+        result = trainer.train_step(batch)
+
+        assert "loss" in result
+        assert "ab_subtb_loss" in result
         assert not torch.isnan(torch.tensor(result["loss"]))

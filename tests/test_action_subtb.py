@@ -139,3 +139,20 @@ class TestSubTBObjectiveABSubTB:
             if "boundary_critic" in n and p.grad is not None
         ]
         assert critic_grads, "boundary critic parameters should receive gradients"
+
+    def test_agentic_subtb_uses_action_boundary_metrics(self):
+        objective = SubTBObjective(
+            config=SubTBConfig(
+                loss_type="agentic_subtb",
+                ab_subtb_alpha=0.25,
+                use_boundary_critic=False,
+                entropy_coef=0.0,
+            ),
+            device="cpu",
+        )
+
+        loss, metrics = objective(self._build_batch())
+
+        assert torch.isfinite(loss)
+        assert "ab_subtb_loss" in metrics
+        assert metrics["ab_subtb_loss"] >= 0.0

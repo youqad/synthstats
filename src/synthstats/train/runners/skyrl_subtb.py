@@ -26,7 +26,7 @@ class SkyRLSubTBConfig:
 
     beta: float = 0.1
     entropy_coef: float = 0.01
-    loss_type: str = "tb"  # "tb" | "modified_subtb" | "ab_subtb"
+    loss_type: str = "tb"  # "tb" | "modified_subtb" | "ab_subtb" | "agentic_subtb"
     subtb_lambda: float = SUBTB_LAMBDA_DEFAULT
     tb_max_residual: float = TB_MAX_RESIDUAL_DEFAULT
     ab_subtb_alpha: float = 0.1

@@ -1,4 +1,4 @@
-loss_type: tb  # tb | modified_subtb | ab_subtb
+loss_type: tb  # tb | modified_subtb | ab_subtb | agentic_subtb
 subtb_lambda: 0.9
 tb_max_residual: 100.0
 

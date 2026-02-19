@@ -34,7 +34,7 @@ from synthstats.train.objectives.losses import (
 class SubTBConfig:
     """Configuration for SubTB objective."""
 
-    loss_type: str = "tb"  # "tb" | "modified_subtb" | "ab_subtb"
+    loss_type: str = "tb"  # "tb" | "modified_subtb" | "ab_subtb" | "agentic_subtb"
     subtb_lambda: float = SUBTB_LAMBDA_DEFAULT
     tb_max_residual: float = TB_MAX_RESIDUAL_DEFAULT
     logZ_init: float = 0.0
@@ -157,7 +157,9 @@ class SubTBObjective(nn.Module):
         ab_subtb_loss: Tensor | None = None
         ab_critic_loss: Tensor | None = None
 
-        if self.config.loss_type == "ab_subtb":
+        use_action_boundary_subtb = self.config.loss_type in {"ab_subtb", "agentic_subtb"}
+
+        if use_action_boundary_subtb:
             tb_tensor = self._compute_vanilla_tb(log_probs_2d, mask_2d, log_reward, ref_log_probs)
             ab_subtb_loss, ab_critic_loss = self._compute_action_boundary_subtb(
                 log_probs=log_probs_2d,
