@@ -10,6 +10,7 @@
 defaults:
   - runner: local
   - env: dugongs
+  - judge: hybrid_lm
   - policy: hf_qwen3_0_6b
   - objective: subtb
   - learner: subtb_torch

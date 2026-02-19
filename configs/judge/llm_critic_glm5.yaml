@@ -1,0 +1,14 @@
+_target_: synthstats.judges.llm_critic.LLMCriticJudge
+
+# Default LM judge (can be swapped to Kimi-K2.5, MiniMax-M2.5, gpt-5.2, opus-4.6)
+model_name: openrouter/z-ai/glm-5
+temperature: 0.2
+num_samples: 1
+default_score: 0.5
+
+# Optional provider overrides
+api_base: ${oc.env:SYNTHSTATS_JUDGE_API_BASE,null}
+api_key_env_var: SYNTHSTATS_JUDGE_API_KEY
+max_tokens: 512
+timeout_s: 30.0
+max_retries: 3

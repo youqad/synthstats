@@ -1,0 +1,20 @@
+_target_: synthstats.judges.composite.CompositeJudge
+scalarization_mode: weighted_log_product
+
+judges:
+  - judge:
+      _target_: synthstats.judges.likelihood.LikelihoodJudge
+      beta: 1.0
+    weight: 0.7
+  - judge:
+      _target_: synthstats.judges.llm_critic.LLMCriticJudge
+      model_name: openrouter/z-ai/glm-5
+      temperature: 0.2
+      num_samples: 1
+      default_score: 0.5
+      api_base: ${oc.env:SYNTHSTATS_JUDGE_API_BASE,null}
+      api_key_env_var: SYNTHSTATS_JUDGE_API_KEY
+      max_tokens: 512
+      timeout_s: 30.0
+      max_retries: 3
+    weight: 0.3
