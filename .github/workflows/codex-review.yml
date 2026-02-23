@@ -1,0 +1,77 @@
+name: Codex PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      message: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Fetch base and head refs
+        run: |
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
+
+      - name: Run Codex
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          prompt: |
+            You are reviewing a pull request in the synthstats repository (GFlowNet-steered probabilistic program synthesis).
+
+            Get the diff:
+              git diff ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+
+            Review for the following, in priority order:
+
+            1. **Correctness** — bugs in GFlowNet loss computation (SubTB), reward calculation, or PyMC model evaluation.
+            2. **Dependency inversion violations (BLOCKING)** — `train/*` importing `tasks/*`, `tasks/*` importing `train/*`, or `executors/*` depending on specific tasks. These break the plugin architecture.
+            3. **Backward-compat additions (BLOCKING)** — shim layers, re-export facades, or compat aliases in runtime code. Update all import sites and delete old locations instead.
+            4. **Plugin interface completeness** — new tasks must implement all four components: Task, ActionCodec, Executor (if needed), Judge.
+            5. **Reward boundary violations** — judge outputs used directly as GFlowNet log-rewards without going through the reward interface.
+            6. **Fail-fast missing** — required configs silently defaulting instead of raising at init.
+            7. **Security** — unsafe code execution, injection risks, or secrets in logs.
+
+            Format your review as:
+            ## Codex Review
+            ### Blocking issues
+            (file:line — description)
+            ### Warnings
+            (file:line — description)
+            ### Notes
+            (optional minor observations)
+
+            Skip style nits. Be concise and specific.
+
+  post:
+    runs-on: ubuntu-latest
+    needs: review
+    if: needs.review.outputs.message != ''
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          CODEX_MSG: ${{ needs.review.outputs.message }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: process.env.CODEX_MSG
+            });
